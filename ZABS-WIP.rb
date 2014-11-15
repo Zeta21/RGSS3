@@ -119,7 +119,7 @@ class Game_Map
     zabs_map_setup(map_id)
     setup_mapenemies
     @projectiles = []
-    @need_refresh_projectiles = []
+    @need_refresh_projectiles = true
     @need_refresh = true
   end
   #--------------------------------------------------------------------------
@@ -141,14 +141,14 @@ class Game_Map
   #--------------------------------------------------------------------------
   def add_projectile(projectile)
     @projectiles.push(projectile)
-    @need_refresh_projectiles << true
+    @need_refresh_projectiles = true
   end
   #--------------------------------------------------------------------------
   # * New Method - update_projectiles
   #--------------------------------------------------------------------------
   def update_projectiles
     valid = @projectiles.reject!(&:need_dispose)
-    @need_refresh_projectiles << true if valid
+    @need_refresh_projectiles = true if valid
     @projectiles.each(&:update)
   end
 end
@@ -191,9 +191,9 @@ class Spriteset_Map
   #--------------------------------------------------------------------------
   alias zabs_map_update_characters update_characters
   def update_characters
-    unless $game_map.need_refresh_projectiles.empty?
+    if $game_map.need_refresh_projectiles
       refresh_projectiles
-      $game_map.need_refresh_projectiles.pop
+      $game_map.need_refresh_projectiles = false
     end
     zabs_map_update_characters
   end
