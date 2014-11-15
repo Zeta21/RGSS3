@@ -28,6 +28,14 @@ module ZABS_Setup
   DEATH_FADE_RATE = 4
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
   ENEMY_REGEX = /<enemy:\s*(\d+)>/i
+  BATTLE_TAGS_REGEX = /<battle_tags:\s*(.*)>/i
+end
+
+class RPG::BaseItem
+  def battle_tags
+    match = @note[ZABS_Setup::BATTLE_TAGS_REGEX, 1]
+    match.nil? ? [] : match.split(/,\s*/)
+  end
 end
 
 module ZABS_Battler
@@ -45,10 +53,19 @@ module ZABS_Battler
     battler.alive? && @hit_cooldown.zero?
   end
   #--------------------------------------------------------------------------
+  # * New Method - battle_tags_check?
+  #--------------------------------------------------------------------------
+  def battle_tags_check?(projectile)
+    projectile.item.battle_tags.each do |x|
+      return true if battler.data.battle_tags.include?(x)
+    end
+    return false
+  end
+  #--------------------------------------------------------------------------
   # * New Method - apply_projectile
   #--------------------------------------------------------------------------
   def apply_projectile(projectile)
-    return unless attackable?
+    return unless attackable? && battle_tags_check?(projectile)
     @hit_cooldown = ZABS_Setup::HIT_COOLDOWN_TIME
     battler.item_apply(projectile.battler, projectile.item)
     battler.result.hit? ? process_hit(projectile) : process_miss
@@ -102,7 +119,7 @@ class Game_Map
     zabs_map_setup(map_id)
     setup_mapenemies
     @projectiles = []
-    @need_refresh_projectiles = true
+    @need_refresh_projectiles = []
     @need_refresh = true
   end
   #--------------------------------------------------------------------------
@@ -124,16 +141,20 @@ class Game_Map
   #--------------------------------------------------------------------------
   def add_projectile(projectile)
     @projectiles.push(projectile)
-    @need_refresh_projectiles = true
+    @need_refresh_projectiles << true
   end
   #--------------------------------------------------------------------------
   # * New Method - update_projectiles
   #--------------------------------------------------------------------------
   def update_projectiles
     valid = @projectiles.reject!(&:need_dispose)
-    @need_refresh_projectiles = true if valid
+    @need_refresh_projectiles << true if valid
     @projectiles.each(&:update)
   end
+end
+
+class Game_Actor < Game_Battler
+  alias_method :data, :actor
 end
 
 class Game_Player < Game_Character
@@ -170,9 +191,9 @@ class Spriteset_Map
   #--------------------------------------------------------------------------
   alias zabs_map_update_characters update_characters
   def update_characters
-    if $game_map.need_refresh_projectiles
+    unless $game_map.need_refresh_projectiles.empty?
       refresh_projectiles
-      $game_map.need_refresh_projectiles = false
+      $game_map.need_refresh_projectiles.pop
     end
     zabs_map_update_characters
   end
@@ -203,9 +224,40 @@ class Spriteset_Map
   end
 end
 
+class Game_MapEnemy < Game_Battler
+  #--------------------------------------------------------------------------
+  # * Object Initialization
+  #--------------------------------------------------------------------------
+  def initialize(enemy_id)
+    super()
+    @enemy_id = enemy_id
+    @hp = mhp
+    @mp = mmp
+    p data.battle_tags
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - param_base
+  #--------------------------------------------------------------------------
+  def param_base(param_id)
+    data.params[param_id]
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - feature_objects
+  #--------------------------------------------------------------------------
+  def feature_objects
+    super + [data]
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - enemy_data
+  #--------------------------------------------------------------------------
+  def data
+    $data_enemies[@enemy_id]
+  end
+end
+
 class Game_Projectile < Game_Character
   attr_accessor :piercing
-  attr_reader :type, :battler, :item, :hit_effect, :hit_jump, :knockback
+  attr_reader :type, :battler, :item, :hit_jump, :knockback, :hit_effect
   attr_reader :need_dispose
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
@@ -251,6 +303,7 @@ class Game_Projectile < Game_Character
   def valid_targets
     arr = $game_map.events_xy(@x, @y).select(&:is_enemy?)
     arr.push($game_player) if $game_player.pos?(@x, @y)
+    return arr
   end
   #--------------------------------------------------------------------------
   # * New Method - move_projectile
@@ -280,39 +333,9 @@ class Game_Projectile < Game_Character
   #--------------------------------------------------------------------------
   def update
     super
-    move_projectile
     update_effects
     update_end
-  end
-end
-
-class Game_MapEnemy < Game_Battler
-  #--------------------------------------------------------------------------
-  # * Object Initialization
-  #--------------------------------------------------------------------------
-  def initialize(enemy_id)
-    super()
-    @enemy_id = enemy_id
-    @hp = mhp
-    @mp = mmp
-  end
-  #--------------------------------------------------------------------------
-  # * Overwrite Method - param_base
-  #--------------------------------------------------------------------------
-  def param_base(param_id)
-    enemy_data.params[param_id]
-  end
-  #--------------------------------------------------------------------------
-  # * Overwrite Method - feature_objects
-  #--------------------------------------------------------------------------
-  def feature_objects
-    super + [enemy_data]
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - enemy_data
-  #--------------------------------------------------------------------------
-  def enemy_data
-    $data_enemies[@enemy_id]
+    move_projectile
   end
 end
 
@@ -325,6 +348,19 @@ class Game_EnemyEvent < Game_Event
   def initialize(map_id, event)
     super
     @battler = Game_MapEnemy.new(enemy_id)
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - update_self_movement
+  #--------------------------------------------------------------------------
+  def update_self_movement
+    return if dying?
+    super
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - is_enemy?
+  #--------------------------------------------------------------------------
+  def is_enemy?
+    return true
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - to_enemyevent
