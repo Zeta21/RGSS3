@@ -4,22 +4,33 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
     1 => {
       :character_name => "!Other1",
-      :move_speed => 5,
-      :through => true,
       :distance => 10,
       :knockback => 1,
-      :piercing => 1,
+      :piercing => 2,
       :initial_effect => %(RPG::SE.new("Earth9", 80).play),
+      :hit_effect => %(@animation_id = 1)
+    },
+    2 => {
+      :character_name => "!Other1",
+      :character_index => 1,
+      :distance => 10,
+      :knockback => 2,
+      :piercing => 2,
+      :initial_effect => %(RPG::SE.new("Earth9", 80, 120).play),
       :hit_effect => %(@animation_id = 1)
     }
 #----------------------------------------------------------------------------
   } # Do not delete this line.
 #----------------------------------------------------------------------------
   PROJECTILE_DEFAULT = {
+    :move_speed => 5,
+    :through => true,
     :hit_jump => true,
-    :distance => 0,
+    :ignore_spawn => true,
+    :distance => 1,
     :knockback => 0,
     :piercing => 0,
+    :battle_tags => ["enemy", "player"],
     :initial_effect => %(),
     :update_effect => %(),
     :hit_effect => %(),
@@ -27,14 +38,29 @@ module ZABS_Setup
   HIT_COOLDOWN_TIME = 30
   DEATH_FADE_RATE = 4
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
+#----------------------------------------------------------------------------
+# * Regular Expressions
+#----------------------------------------------------------------------------
   ENEMY_REGEX = /<enemy:\s*(\d+)>/i
   BATTLE_TAGS_REGEX = /<battle_tags:\s*(.*)>/i
+  RESPAWN_TIME_REGEX = /<respawn_time:\s*(\d+)>/i
 end
 
-class RPG::BaseItem
+module ZABS_BattlerNotes
   def battle_tags
-    match = @note[ZABS_Setup::BATTLE_TAGS_REGEX, 1]
-    match.nil? ? [] : match.split(/,\s*/)
+    match = @note.scan(ZABS_Setup::BATTLE_TAGS_REGEX)
+    match.nil? ? [] : match.join(",").split(/,\s*/)
+  end
+end
+
+class RPG::Actor
+  include ZABS_BattlerNotes
+end
+
+class RPG::Enemy
+  include ZABS_BattlerNotes
+  def respawn_time
+    @note[ZABS_Setup::RESPAWN_TIME_REGEX, 1].to_i
   end
 end
 
@@ -56,8 +82,8 @@ module ZABS_Battler
   # * New Method - battle_tags_check?
   #--------------------------------------------------------------------------
   def battle_tags_check?(projectile)
-    projectile.item.battle_tags.each do |x|
-      return true if battler.data.battle_tags.include?(x)
+    battler.data.battle_tags.each do |x|
+      return true if projectile.battle_tags.include?(x)
     end
     return false
   end
@@ -209,11 +235,10 @@ class Spriteset_Map
   # * New Method - dispose_projectiles
   #--------------------------------------------------------------------------
   def dispose_projectiles
-    @character_sprites.each_with_index do |v, i|
-      next unless v.character.is_a?(Game_Projectile)
-      v.dispose
-      @character_sprites.delete_at(i)
+    @character_sprites.each do |x|
+      x.dispose if x.character.is_a?(Game_Projectile)
     end
+    @character_sprites.reject! {|x| x.character.is_a?(Game_Projectile)}
   end
   #--------------------------------------------------------------------------
   # * New Method - refresh_projectiles
@@ -233,7 +258,6 @@ class Game_MapEnemy < Game_Battler
     @enemy_id = enemy_id
     @hp = mhp
     @mp = mmp
-    p data.battle_tags
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - param_base
@@ -248,7 +272,7 @@ class Game_MapEnemy < Game_Battler
     super + [data]
   end
   #--------------------------------------------------------------------------
-  # * New Method - enemy_data
+  # * New Method - data
   #--------------------------------------------------------------------------
   def data
     $data_enemies[@enemy_id]
@@ -258,7 +282,7 @@ end
 class Game_Projectile < Game_Character
   attr_accessor :piercing
   attr_reader :type, :battler, :item, :hit_jump, :knockback, :hit_effect
-  attr_reader :need_dispose
+  attr_reader :battle_tags, :need_dispose
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
@@ -272,7 +296,7 @@ class Game_Projectile < Game_Character
   def initialize(type, character, item)
     super()
     moveto(character.x, character.y)
-    @type, @item = type, item
+    @type, @character, @item = type, character, item
     @direction, @battler = character.direction, character.battler
     initialize_projectile
     yield if block_given?
@@ -281,8 +305,8 @@ class Game_Projectile < Game_Character
   # * New Method - initialize_projectile
   #--------------------------------------------------------------------------
   def initialize_projectile
-    data = ZABS_Setup::PROJECTILE_DEFAULT.merge(projectile_data)
-    data.each {|k, v| instance_variable_set("@#{k}", v)}
+    attrs = ZABS_Setup::PROJECTILE_DEFAULT.merge(data)
+    attrs.each {|k, v| instance_variable_set("@#{k}", v)}
     eval(@initial_effect)
   end
   #--------------------------------------------------------------------------
@@ -292,9 +316,9 @@ class Game_Projectile < Game_Character
     @distance.zero?
   end
   #--------------------------------------------------------------------------
-  # * New Method - projectile_data
+  # * New Method - data
   #--------------------------------------------------------------------------
-  def projectile_data
+  def data
     ZABS_Setup::PROJECTILES[@type]
   end
   #--------------------------------------------------------------------------
@@ -303,6 +327,7 @@ class Game_Projectile < Game_Character
   def valid_targets
     arr = $game_map.events_xy(@x, @y).select(&:is_enemy?)
     arr.push($game_player) if $game_player.pos?(@x, @y)
+    arr.reject! {|x| @character.equal?(x)} if @ignore_spawn
     return arr
   end
   #--------------------------------------------------------------------------
@@ -348,12 +373,14 @@ class Game_EnemyEvent < Game_Event
   def initialize(map_id, event)
     super
     @battler = Game_MapEnemy.new(enemy_id)
+    @respawn_time = @battler.data.respawn_time
+    @animation_id = 2 # TEMP
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - update_self_movement
   #--------------------------------------------------------------------------
   def update_self_movement
-    return if dying?
+    return if @battler.dead?
     super
   end
   #--------------------------------------------------------------------------
@@ -369,24 +396,30 @@ class Game_EnemyEvent < Game_Event
     return self
   end
   #--------------------------------------------------------------------------
-  # * New Method - dying?
-  #--------------------------------------------------------------------------
-  def dying?
-    @battler.dead?
-  end
-  #--------------------------------------------------------------------------
   # * New Method - enemy_id
   #--------------------------------------------------------------------------
   def enemy_id
-    match = ZABS_Setup::ENEMY_REGEX.match(@event.name)
-    return match[1].to_i
+    @event.name[ZABS_Setup::ENEMY_REGEX, 1].to_i
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_death
+  #--------------------------------------------------------------------------
+  def process_death
+    @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_respawn
+  #--------------------------------------------------------------------------
+  def process_respawn
+    return if @respawn_time.nil?
+    @respawn_time > 0 ? @respawn_time -= 1 : initialize(@map_id, @event)
   end
   #--------------------------------------------------------------------------
   # * New Method - update_death
   #--------------------------------------------------------------------------
   def update_death
-    return unless dying?
-    @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
+    return unless @battler.dead?
+    @erased ? process_respawn : process_death
   end
   #--------------------------------------------------------------------------
   # * Frame Update
