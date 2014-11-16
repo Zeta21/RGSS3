@@ -30,7 +30,8 @@ module ZABS_Setup
     :distance => 1,
     :knockback => 0,
     :piercing => 0,
-    :battle_tags => ["enemy", "player"],
+    :size => 1,
+    :battle_tags => ["player", "enemy"],
     :initial_effect => %(),
     :update_effect => %(),
     :hit_effect => %(),
@@ -163,6 +164,12 @@ class Game_Map
     @events.each {|k,v| @events[k] = v.to_enemyevent}
   end
   #--------------------------------------------------------------------------
+  # * New Method - events_inrange
+  #--------------------------------------------------------------------------
+  def events_inrange(x, y, d)
+    @events.values.select {|e| e.in_range?(x, y, d)}
+  end
+  #--------------------------------------------------------------------------
   # * New Method - add_projectile
   #--------------------------------------------------------------------------
   def add_projectile(projectile)
@@ -181,6 +188,16 @@ end
 
 class Game_Actor < Game_Battler
   alias_method :data, :actor
+end
+
+class Game_Character < Game_CharacterBase
+  #--------------------------------------------------------------------------
+  # * New Method - in_range?
+  #--------------------------------------------------------------------------
+  def in_range?(x, y, d)
+    dx, dy = distance_x_from(x).abs, distance_y_from(y).abs
+    dx + dy < d
+  end
 end
 
 class Game_Player < Game_Character
@@ -325,8 +342,8 @@ class Game_Projectile < Game_Character
   # * New Method - valid_targets
   #--------------------------------------------------------------------------
   def valid_targets
-    arr = $game_map.events_xy(@x, @y).select(&:is_enemy?)
-    arr.push($game_player) if $game_player.pos?(@x, @y)
+    arr = $game_map.events_inrange(@x, @y, @size).select(&:is_enemy?)
+    arr.push($game_player) if $game_player.in_range?(@x, @y, @size)
     arr.reject! {|x| @character.equal?(x)} if @ignore_spawn
     return arr
   end
