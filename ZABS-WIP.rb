@@ -195,8 +195,7 @@ class Game_Character < Game_CharacterBase
   # * New Method - in_range?
   #--------------------------------------------------------------------------
   def in_range?(x, y, d)
-    dx, dy = distance_x_from(x).abs, distance_y_from(y).abs
-    dx + dy < d
+    distance_x_from(x).abs + distance_y_from(y).abs < d
   end
 end
 
@@ -273,8 +272,7 @@ class Game_MapEnemy < Game_Battler
   def initialize(enemy_id)
     super()
     @enemy_id = enemy_id
-    @hp = mhp
-    @mp = mmp
+    @hp, @mp = mhp, mmp
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - param_base
@@ -298,8 +296,8 @@ end
 
 class Game_Projectile < Game_Character
   attr_accessor :piercing
-  attr_reader :type, :battler, :item, :hit_jump, :knockback, :hit_effect
-  attr_reader :battle_tags, :need_dispose
+  attr_reader :type, :battler, :item, :hit_jump, :knockback, :battle_tags
+  attr_reader :hit_effect, :need_dispose
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
@@ -391,7 +389,6 @@ class Game_EnemyEvent < Game_Event
     super
     @battler = Game_MapEnemy.new(enemy_id)
     @respawn_time = @battler.data.respawn_time
-    @animation_id = 2 # TEMP
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - update_self_movement
