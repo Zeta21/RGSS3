@@ -3,37 +3,38 @@ module ZABS_Setup
   PROJECTILES = { # Do not delete this line.
 #----------------------------------------------------------------------------
     1 => {
-      :character_name => "!Other1",
-      :distance => 10,
-      :knockback => 1,
-      :piercing => 2,
-      :initial_effect => %(RPG::SE.new("Earth9", 80).play),
-      :hit_effect => %(@animation_id = 1)
+      character_name: "!Other1",
+      distance: 10,
+      knockback: 1,
+      initial_effect: %(RPG::SE.new("Earth9", 80).play),
+      hit_effect: %(@animation_id = 1)
     },
     2 => {
-      :character_name => "!Other1",
-      :character_index => 1,
-      :distance => 10,
-      :knockback => 2,
-      :piercing => 2,
-      :initial_effect => %(RPG::SE.new("Earth9", 80, 120).play),
-      :hit_effect => %(@animation_id = 1)
+      character_name: "!Other1",
+      character_index: 1,
+      distance: 10,
+      knockback: 2,
+      piercing: 2,
+      initial_effect: %(RPG::SE.new("Earth9", 80, 120).play),
+      hit_effect: %(@animation_id = 1)
     }
 #----------------------------------------------------------------------------
   } # Do not delete this line.
 #----------------------------------------------------------------------------
   PROJECTILE_DEFAULT = {
-    :move_speed => 5,
-    :hit_jump => true,
-    :ignore_spawn => true,
-    :size => 1,
-    :distance => 1,
-    :knockback => 0,
-    :piercing => 0,
-    :initial_effect => %(),
-    :update_effect => %(),
-    :hit_effect => %(),
-    :end_effect => %()}
+    move_speed: 5,
+    hit_jump: true,
+    battler_through: true,
+    ignore_user: true,
+    size: 1,
+    distance: 1,
+    knockback: 0,
+    piercing: 0,
+    initial_effect: %(),
+    update_effect: %(),
+    hit_effect: %(),
+    end_effect: %()
+  }
   HIT_COOLDOWN_TIME = 30
   DEATH_FADE_RATE = 4
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
@@ -176,6 +177,20 @@ module ZABS_Battler
   end
 end
 
+class Game_Actor < Game_Battler
+  alias_method :data, :actor
+end
+
+class Game_Party < Game_Unit
+  #--------------------------------------------------------------------------
+  # * New Method - rotate_actors
+  #--------------------------------------------------------------------------
+  def rotate_actors
+    return if members.all?(&:dead?)
+    @actors.rotate! until $game_player.actor.alive?
+  end
+end
+
 class Game_Map
   attr_accessor :need_refresh_projectiles
   attr_reader :projectiles
@@ -188,7 +203,6 @@ class Game_Map
     setup_mapenemies
     @projectiles = []
     @need_refresh_projectiles = true
-    @need_refresh = true
   end
   #--------------------------------------------------------------------------
   # * Alias Method - update
@@ -227,10 +241,6 @@ class Game_Map
   end
 end
 
-class Game_Actor < Game_Battler
-  alias_method :data, :actor
-end
-
 class Game_Character < Game_CharacterBase
   #--------------------------------------------------------------------------
   # * New Method - in_range?
@@ -243,9 +253,25 @@ end
 class Game_Player < Game_Character
   include ZABS_Battler
   alias_method :battler, :actor
+  #--------------------------------------------------------------------------
+  # * Alias Method - update
+  #--------------------------------------------------------------------------
+  alias zabs_player_update update
+  def update
+    zabs_player_update
+    update_death
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_death
+  #--------------------------------------------------------------------------
+  def update_death
+    return if actor.alive?
+    $game_party.rotate_actors
+    refresh
+  end
 end
 
-class Game_Event
+class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   # * New Method - is_enemy?
   #--------------------------------------------------------------------------
@@ -367,6 +393,7 @@ class Game_Projectile < Game_Character
   #--------------------------------------------------------------------------
   def collide_with_events?(x, y)
     return false unless super
+    return true unless @battler_through
     events = $game_map.events_xy_nt(x, y).reject(&:is_enemy?)
     events.any?(&:normal_priority?)
   end
@@ -396,7 +423,7 @@ class Game_Projectile < Game_Character
   def valid_targets
     arr = $game_map.events_xyd(@x, @y, @size).select(&:is_enemy?)
     arr.push($game_player) if $game_player.in_range?(@x, @y, @size)
-    arr.reject! {|x| x.equal?(@character)} if @ignore_spawn
+    arr.reject! {|x| x.equal?(@character)} if @ignore_user
     return arr
   end
   #--------------------------------------------------------------------------
