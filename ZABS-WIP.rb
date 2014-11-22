@@ -6,16 +6,16 @@ module ZABS_Setup
       character_name: "!Other1",
       distance: 10,
       knockback: 1,
+      piercing: 5,
       initial_effect: %(RPG::SE.new("Earth9", 80).play),
       hit_effect: %(@animation_id = 1)
     },
     2 => {
-      character_name: "!Other1",
-      character_index: 1,
+      character_name: "Monster3",
+      through: true,
+      hit_jump: false,
       distance: 10,
-      knockback: 2,
-      piercing: 2,
-      initial_effect: %(RPG::SE.new("Earth9", 80, 120).play),
+      initial_effect: %(RPG::SE.new("Monster3", 80).play),
       hit_effect: %(@animation_id = 1)
     }
 #----------------------------------------------------------------------------
@@ -36,6 +36,7 @@ module ZABS_Setup
     end_effect: %()
   }
   HIT_COOLDOWN_TIME = 30
+  TURN_UPDATE_TIME = 60
   DEATH_FADE_RATE = 4
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
 #----------------------------------------------------------------------------
@@ -43,6 +44,7 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
   BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
   ITEM_PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
+  ITEM_COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
   IMMOVABLE_REGEX = /<immovable>/i
   RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
   RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
@@ -55,6 +57,12 @@ module ZABS_ItemNotes
   #--------------------------------------------------------------------------
   def projectile
     @note[ZABS_Setup::ITEM_PROJECTILE_REGEX, 1].to_i
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - cooldown
+  #--------------------------------------------------------------------------
+  def cooldown
+    @note[ZABS_Setup::ITEM_COOLDOWN_REGEX, 1].to_i
   end
 end
 
@@ -108,8 +116,35 @@ module ZABS_Battler
   #--------------------------------------------------------------------------
   def initialize(*args)
     super
+    @update_time = ZABS_Setup::TURN_UPDATE_TIME
+  end
+  #--------------------------------------------------------------------------
+  # * Frame Update
+  #--------------------------------------------------------------------------
+  def update
+    return (@update_time -= 1) unless @update_time.zero?
+    on_turn_end
+    @update_time = ZABS_Setup::TURN_UPDATE_TIME
+  end
+end
+
+module ZABS_Character
+  #--------------------------------------------------------------------------
+  # * Object Initialization
+  #--------------------------------------------------------------------------
+  def initialize(*args)
+    super
     @hit_cooldown = 0
     @item_cooldown = Hash.new(0)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - use_skill
+  #--------------------------------------------------------------------------
+  def use_skill(skill_id)
+    skill = $data_skills[skill_id]
+    return unless battler.usable?(skill) && @item_cooldown[skill].zero?
+    Game_Projectile.spawn(skill.projectile, self, skill)
+    @item_cooldown[skill] = skill.cooldown
   end
   #--------------------------------------------------------------------------
   # * New Method - attackable?
@@ -165,19 +200,23 @@ module ZABS_Battler
   # * New Method - update_item_cooldown
   #--------------------------------------------------------------------------
   def update_item_cooldown
-    @item_cooldown.each_value {|x| x -= 1 unless x.zero?}
+    @item_cooldown.each do |k, v|
+      @item_cooldown[k] = v.pred unless v.zero?
+    end
   end
   #--------------------------------------------------------------------------
   # * Frame Update
   #--------------------------------------------------------------------------
   def update
     super
+    battler.update
     update_hit_cooldown
     update_item_cooldown
   end
 end
 
 class Game_Actor < Game_Battler
+  include ZABS_Battler
   alias_method :data, :actor
 end
 
@@ -251,7 +290,7 @@ class Game_Character < Game_CharacterBase
 end
 
 class Game_Player < Game_Character
-  include ZABS_Battler
+  include ZABS_Character
   alias_method :battler, :actor
   #--------------------------------------------------------------------------
   # * Alias Method - update
@@ -285,8 +324,7 @@ class Game_Event < Game_Character
     return self unless @event.name =~ ZABS_Setup::ENEMY_REGEX
     event = Game_EnemyEvent.new(@map_id, @event)
     instance_variables.each do |s|
-      v = instance_variable_get(s)
-      event.instance_variable_set(s, v)
+      event.instance_variable_set(s, instance_variable_get(s))
     end
     return event
   end
@@ -339,6 +377,7 @@ class Spriteset_Map
 end
 
 class Game_MapEnemy < Game_Battler
+  include ZABS_Battler
   #--------------------------------------------------------------------------
   # * Object Initialization
   #--------------------------------------------------------------------------
@@ -461,7 +500,7 @@ class Game_Projectile < Game_Character
 end
 
 class Game_EnemyEvent < Game_Event
-  include ZABS_Battler
+  include ZABS_Character
   attr_reader :battler
   #--------------------------------------------------------------------------
   # * Object Initialization
