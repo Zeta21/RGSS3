@@ -17,6 +17,12 @@ module ZABS_Setup
       distance: 10,
       initial_effect: %(RPG::SE.new("Monster3", 80).play),
       hit_effect: %(@animation_id = 1)
+    },
+    3 => {
+      through: true,
+      hit_jump: false,
+      distance: 0,
+      hit_effect: %(@animation_id = 3)
     }
 #----------------------------------------------------------------------------
   } # Do not delete this line.
@@ -57,7 +63,7 @@ module ZABS_ItemNotes
   # * New Method - abs_item?
   #--------------------------------------------------------------------------
   def abs_item?
-    projectile && cooldown
+    projectile
   end
   #--------------------------------------------------------------------------
   # * New Method - projectile
@@ -70,8 +76,7 @@ module ZABS_ItemNotes
   # * New Method - cooldown
   #--------------------------------------------------------------------------
   def cooldown
-    match = @note[ZABS_Setup::ITEM_COOLDOWN_REGEX, 1]
-    match.to_i if match
+    match = @note[ZABS_Setup::ITEM_COOLDOWN_REGEX, 1].to_i
   end
 end
 
@@ -168,7 +173,8 @@ module ZABS_Character
   # * New Method - abs_item_usable?
   #--------------------------------------------------------------------------
   def abs_item_usable?(item)
-    item.abs_item? && battler.usable?(item) && @item_cooldown[item].zero?
+    item.abs_item? && battler.usable?(item) && \
+    @item_cooldown[item].zero?
   end
   #--------------------------------------------------------------------------
   # * New Method - use_abs_skill
@@ -193,8 +199,14 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def process_item_use(item)
     return unless abs_item_usable?(item)
+    if item.is_a?(RPG::UsableItem) && item.for_user?
+      return unless battler.item_test(battler, item)
+      battler.item_apply(battler, item)
+    else
+      Game_Projectile.spawn(item.projectile, self, item)
+    end
     @item_cooldown[item] = item.cooldown
-    Game_Projectile.spawn(item.projectile, self, item)
+    battler.use_item(item)
   end
   #--------------------------------------------------------------------------
   # * New Method - attackable?
@@ -523,7 +535,6 @@ class Game_Projectile < Game_Character
   # * New Method - valid_targets
   #--------------------------------------------------------------------------
   def valid_targets
-    return [@character] if effect_item.for_user?
     arr = $game_map.events_xyd(@x, @y, @size).select(&:is_enemy?)
     arr.push($game_player) if $game_player.in_range?(@x, @y, @size)
     arr.reject! {|x| x.equal?(@character)} if @ignore_user
