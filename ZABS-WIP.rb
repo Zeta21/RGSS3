@@ -17,12 +17,6 @@ module ZABS_Setup
       distance: 10,
       initial_effect: %(RPG::SE.new("Monster3", 80).play),
       hit_effect: %(@animation_id = 1)
-    },
-    3 => {
-      through: true,
-      hit_jump: false,
-      distance: 0,
-      hit_effect: %(@animation_id = 3)
     }
 #----------------------------------------------------------------------------
   } # Do not delete this line.
@@ -135,28 +129,47 @@ class RPG::Enemy
 end
 
 module ZABS_Battler
+  attr_accessor :item_cooldown
   #--------------------------------------------------------------------------
   # * Object Initialization
   #--------------------------------------------------------------------------
   def initialize(*args)
     super
     @update_time = ZABS_Setup::TURN_UPDATE_TIME
+    @item_cooldown = Hash.new(0)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - usable?
   #--------------------------------------------------------------------------
   def usable?(item)
+    return unless @item_cooldown[item].zero?
     return equippable?(item) if item.is_a?(RPG::EquipItem)
     return super
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - use_item
+  #--------------------------------------------------------------------------
+  def use_item(item)
+    super
+    @item_cooldown[item] = item.cooldown
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_item_cooldown
+  #--------------------------------------------------------------------------
+  def update_item_cooldown
+    @item_cooldown.each do |k, v|
+      @item_cooldown[k] = v.pred unless v.zero?
+    end
   end
   #--------------------------------------------------------------------------
   # * Frame Update
   #--------------------------------------------------------------------------
   def update
+    update_item_cooldown
     return (@update_time -= 1) unless @update_time.zero?
-    @update_time = ZABS_Setup::TURN_UPDATE_TIME
     on_turn_end
     refresh
+    @update_time = ZABS_Setup::TURN_UPDATE_TIME
   end
 end
 
@@ -167,14 +180,12 @@ module ZABS_Character
   def initialize(*args)
     super
     @hit_cooldown = 0
-    @item_cooldown = Hash.new(0)
   end
   #--------------------------------------------------------------------------
   # * New Method - abs_item_usable?
   #--------------------------------------------------------------------------
   def abs_item_usable?(item)
-    item.abs_item? && battler.usable?(item) && \
-    @item_cooldown[item].zero?
+    item.abs_item? && battler.usable?(item)
   end
   #--------------------------------------------------------------------------
   # * New Method - use_abs_skill
@@ -205,7 +216,6 @@ module ZABS_Character
     else
       Game_Projectile.spawn(item.projectile, self, item)
     end
-    @item_cooldown[item] = item.cooldown
     battler.use_item(item)
   end
   #--------------------------------------------------------------------------
@@ -259,20 +269,11 @@ module ZABS_Character
     @hit_cooldown -= 1 unless @hit_cooldown.zero?
   end
   #--------------------------------------------------------------------------
-  # * New Method - update_item_cooldown
-  #--------------------------------------------------------------------------
-  def update_item_cooldown
-    @item_cooldown.each do |k, v|
-      @item_cooldown[k] = v.pred unless v.zero?
-    end
-  end
-  #--------------------------------------------------------------------------
   # * Frame Update
   #--------------------------------------------------------------------------
   def update
     super
     update_hit_cooldown
-    update_item_cooldown
   end
 end
 
