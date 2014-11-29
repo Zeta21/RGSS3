@@ -57,6 +57,16 @@ module ZABS_Setup
   ENEMY_REGEX = /<enemy:\s*(\d+)>/i
 end
 
+module Input
+  class << self
+    alias zabs_input_update update
+  end
+  def self.update
+    ZABS_Input.update
+    zabs_input_update
+  end
+end
+
 module ZABS_Input
   #--------------------------------------------------------------------------
   # * Initial Setup - GetKeyState
@@ -66,8 +76,8 @@ module ZABS_Input
   # * Initial Setup - key_map
   #--------------------------------------------------------------------------
   @key_map = {}
-  (0..9).each {|x| @key_map.store("NUMBER_#{x}", x.to_s.ord)}
-  ("A".."Z").each {|x| @key_map.store("LETTER_#{x}", x.ord)}
+  (0..9).each {|x| @key_map.store("NUMBER_#{x}".intern, x.to_s.ord)}
+  ("A".."Z").each {|x| @key_map.store("LETTER_#{x}".intern, x.ord)}
   #--------------------------------------------------------------------------
   # * Initial Setup - key_states
   #--------------------------------------------------------------------------
@@ -92,7 +102,8 @@ module ZABS_Input
   # * New Class Method - trigger?
   #--------------------------------------------------------------------------
   def self.trigger?(key)
-    @key_states[key] == 1
+    puts @key_states[key]
+    (1..2) === @key_states[key]
   end
 end
 
@@ -162,6 +173,9 @@ end
 
 class RPG::EquipItem
   include ZABS_ItemNotes
+  #--------------------------------------------------------------------------
+  # * New Method - effect_item
+  #--------------------------------------------------------------------------
   def effect_item
     match = @note[ZABS_Setup::EFFECT_ITEM_REGEX, 1]
     $data_skills[match ? match : 1]
@@ -238,7 +252,6 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def initialize(*args)
     super
-    @size = battler.data.size
     @hit_cooldown = 0
   end
   #--------------------------------------------------------------------------
@@ -435,6 +448,14 @@ class Game_Player < Game_Character
   include ZABS_Character
   alias_method :battler, :actor
   #--------------------------------------------------------------------------
+  # * Alias Method - refresh
+  #--------------------------------------------------------------------------
+  alias zabs_player_refresh refresh
+  def refresh
+    @size = actor ? actor.data.size : 1
+    zabs_player_refresh
+  end
+  #--------------------------------------------------------------------------
   # * Alias Method - update
   #--------------------------------------------------------------------------
   alias zabs_player_update update
@@ -557,7 +578,7 @@ end
 class Game_Projectile < Game_Character
   attr_accessor :piercing
   attr_reader :battler, :item, :hit_jump, :knockback, :hit_effect
-  attr_reader :need_dispose
+  attr_reader :collide_effect, :need_dispose
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
@@ -571,7 +592,7 @@ class Game_Projectile < Game_Character
   def initialize(character, type, item)
     super()
     moveto(character.x, character.y)
-    @character, @type, @item = character, type, itemF
+    @character, @type, @item = character, type, item
     @direction, @battler = character.direction, character.battler
     initialize_projectile
   end
@@ -670,15 +691,8 @@ class Game_EnemyEvent < Game_Event
   def initialize(map_id, event)
     super
     @battler = Game_MapEnemy.new(enemy_id)
+    @size = @battler.data.size
     @respawn_time = @battler.data.respawn_time
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - process_normal_item
-  #--------------------------------------------------------------------------
-  def process_normal_item(item)
-    return unless item.for_user? && @battler.item_test(@battler, item)
-    @battler.use_item(item)
-    @battler.item_apply(@battler, item)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - update_self_movement
@@ -692,6 +706,14 @@ class Game_EnemyEvent < Game_Event
   #--------------------------------------------------------------------------
   def to_enemyevent
     return self
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_normal_item
+  #--------------------------------------------------------------------------
+  def process_normal_item(item)
+    return unless item.for_user? && @battler.item_test(@battler, item)
+    @battler.use_item(item)
+    @battler.item_apply(@battler, item)
   end
   #--------------------------------------------------------------------------
   # * New Method - enemy_id
