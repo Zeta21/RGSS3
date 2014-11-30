@@ -38,7 +38,7 @@ module ZABS_Setup
     end_effect: %()
   }
   HIT_COOLDOWN_TIME = 30
-  TURN_UPDATE_TIME = 60
+  TURN_UPDATE_TIME = 120
   DEATH_FADE_RATE = 4
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
 #----------------------------------------------------------------------------
@@ -55,16 +55,6 @@ module ZABS_Setup
   RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
   RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
   ENEMY_REGEX = /<enemy:\s*(\d+)>/i
-end
-
-module Input
-  class << self
-    alias zabs_input_update update
-  end
-  def self.update
-    ZABS_Input.update
-    zabs_input_update
-  end
 end
 
 module ZABS_Input
@@ -102,8 +92,20 @@ module ZABS_Input
   # * New Class Method - trigger?
   #--------------------------------------------------------------------------
   def self.trigger?(key)
-    puts @key_states[key]
     (1..2) === @key_states[key]
+  end
+end
+
+module Input
+  #--------------------------------------------------------------------------
+  # * Alias Class Method - update
+  #--------------------------------------------------------------------------
+  class << self
+    alias zabs_input_update update
+  end
+  def self.update
+    ZABS_Input.update
+    zabs_input_update
   end
 end
 
@@ -310,6 +312,12 @@ module ZABS_Character
     (battler.data.battle_tags & projectile.item.battle_tags).any?
   end
   #--------------------------------------------------------------------------
+  # * New Method - size
+  #--------------------------------------------------------------------------
+  def size
+    battler.data.size
+  end
+  #--------------------------------------------------------------------------
   # * New Method - apply_projectile
   #--------------------------------------------------------------------------
   def apply_projectile(projectile)
@@ -440,21 +448,13 @@ class Game_Character < Game_CharacterBase
   # * New Method - in_range?
   #--------------------------------------------------------------------------
   def in_range?(x, y, d)
-    distance_x_from(x).abs + distance_y_from(y).abs < d + @size.to_i.pred
+    distance_x_from(x).abs + distance_y_from(y).abs < d + size - 1
   end
 end
 
 class Game_Player < Game_Character
   include ZABS_Character
   alias_method :battler, :actor
-  #--------------------------------------------------------------------------
-  # * Alias Method - refresh
-  #--------------------------------------------------------------------------
-  alias zabs_player_refresh refresh
-  def refresh
-    @size = actor ? actor.data.size : 1
-    zabs_player_refresh
-  end
   #--------------------------------------------------------------------------
   # * Alias Method - update
   #--------------------------------------------------------------------------
@@ -577,7 +577,7 @@ end
 
 class Game_Projectile < Game_Character
   attr_accessor :piercing
-  attr_reader :battler, :item, :hit_jump, :knockback, :hit_effect
+  attr_reader :battler, :item, :hit_jump, :knockback, :size, :hit_effect
   attr_reader :collide_effect, :need_dispose
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
@@ -691,7 +691,6 @@ class Game_EnemyEvent < Game_Event
   def initialize(map_id, event)
     super
     @battler = Game_MapEnemy.new(enemy_id)
-    @size = @battler.data.size
     @respawn_time = @battler.data.respawn_time
   end
   #--------------------------------------------------------------------------
