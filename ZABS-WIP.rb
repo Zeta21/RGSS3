@@ -16,8 +16,18 @@ module ZABS_Setup
       hit_jump: false,
       distance: 10,
       initial_effect: %(RPG::SE.new("Monster3", 80).play),
+      hit_effect: %(@animation_id = 1),
+      collide_effect: %(projectile.piercing = -1; 
+                        RPG::SE.new("Monster3", 80, 150).play)
+    },
+    3 => {
+      character_name: "$Arrow",
+      move_speed: 6,
+      distance: 10,
+      knockback: 1,
+      initial_effect: %(RPG::SE.new("Bow2", 80).play),
       hit_effect: %(@animation_id = 1)
-    }
+    },
 #----------------------------------------------------------------------------
   } # Do not delete this line.
 #----------------------------------------------------------------------------
@@ -171,6 +181,12 @@ end
 
 class RPG::UsableItem
   include ZABS_ItemNotes
+  #--------------------------------------------------------------------------
+  # * New Method - effect_item
+  #--------------------------------------------------------------------------
+  def effect_item
+    return self
+  end
 end
 
 class RPG::EquipItem
@@ -227,7 +243,7 @@ module ZABS_Battler
   # * Overwrite Method - use_item
   #--------------------------------------------------------------------------
   def use_item(item)
-    super
+    super(item.effect_item)
     @item_cooldown[item] = item.cooldown
   end
   #--------------------------------------------------------------------------
@@ -323,7 +339,7 @@ module ZABS_Character
   def apply_projectile(projectile)
     return unless attackable? && battle_tags_valid?(projectile)
     @hit_cooldown = ZABS_Setup::HIT_COOLDOWN_TIME
-    battler.item_apply(projectile.battler, projectile.effect_item)
+    battler.item_apply(projectile.battler, projectile.item.effect_item)
     battler.result.hit? ? process_hit(projectile) : process_miss
   end
   #--------------------------------------------------------------------------
@@ -534,7 +550,7 @@ class Spriteset_Map
     @character_sprites.each do |x|
       x.dispose if x.character.is_a?(Game_Projectile)
     end
-    @character_sprites.reject! {|x| x.character.is_a?(Game_Projectile)}
+    @character_sprites.reject!(&:disposed?)
   end
   #--------------------------------------------------------------------------
   # * New Method - refresh_projectiles
@@ -624,12 +640,6 @@ class Game_Projectile < Game_Character
   #--------------------------------------------------------------------------
   def data
     ZABS_Setup::PROJECTILES[@type]
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - effect_item
-  #--------------------------------------------------------------------------
-  def effect_item
-    @item.is_a?(RPG::EquipItem) ? @item.effect_item : @item
   end
   #--------------------------------------------------------------------------
   # * New Method - valid_targets
