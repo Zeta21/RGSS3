@@ -9,7 +9,7 @@ module ZABS_Setup
       piercing: 5,
       initial_effect: %(RPG::SE.new("Earth9", 80).play;
                         jump(0, 0)),
-      hit_effect: %(@animation_id = 1)
+      hit_effect: %(@animation_id = 111)
     },
     2 => {
       character_name: "Monster3",
@@ -18,7 +18,7 @@ module ZABS_Setup
       ignore_user: false,
       distance: 10,
       initial_effect: %(RPG::SE.new("Monster3", 80).play),
-      hit_effect: %(@animation_id = 1),
+      hit_effect: %(@animation_id = 111),
       collide_effect: %(RPG::SE.new("Monster3", 80, 150).play;
                         projectile.need_dispose = true)
     },
@@ -28,7 +28,7 @@ module ZABS_Setup
       distance: 10,
       knockback: 1,
       initial_effect: %(RPG::SE.new("Bow2", 80).play),
-      hit_effect: %(@animation_id = 1)
+      hit_effect: %(@animation_id = 111)
     },
 #----------------------------------------------------------------------------
   } # Do not delete this line.
@@ -189,10 +189,10 @@ class RPG::EquipItem < RPG::BaseItem
   #--------------------------------------------------------------------------
   def effect_item
     return @effect_item if @effect_item
-    match = @note[ZABS_Setup::EFFECT_ITEM_REGEX].to_a
-    @effect_item = case match[0]
-    when "skill" then $data_skills[match[1]]
-    when "item" then $data_items[match[1]]
+    match = @note.scan(ZABS_Setup::EFFECT_ITEM_REGEX).to_a.first
+    @effect_item = case match.first
+    when "skill" then $data_skills[match[1].to_i]
+    when "item" then $data_items[match[1].to_i]
     else $data_skills[1]
     end
   end
@@ -229,6 +229,12 @@ module ZABS_Battler
     super
     @end_turn_time = ZABS_Setup::END_TURN_TIME
     @item_cooldown = Hash.new(0)
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - occasion_ok?
+  #--------------------------------------------------------------------------
+  def occasion_ok?(item)
+    SceneManager.scene_is?(Scene_Map) ? item.battle_ok? : item.menu_ok?
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - use_item
@@ -379,7 +385,7 @@ class Game_Actor < Game_Battler
   # * Overwrite Method - usable?
   #--------------------------------------------------------------------------
   def usable?(item)
-    return false unless @item_cooldown[item].zero?
+    return false unless item && @item_cooldown[item].zero?
     return super(item.effect_item)
   end
 end
