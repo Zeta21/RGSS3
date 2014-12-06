@@ -7,18 +7,20 @@ module ZABS_Setup
       distance: 10,
       knockback: 1,
       piercing: 5,
-      initial_effect: %(RPG::SE.new("Earth9", 80).play),
+      initial_effect: %(RPG::SE.new("Earth9", 80).play;
+                        jump(0, 0)),
       hit_effect: %(@animation_id = 1)
     },
     2 => {
       character_name: "Monster3",
       through: true,
       hit_jump: false,
+      ignore_user: false,
       distance: 10,
       initial_effect: %(RPG::SE.new("Monster3", 80).play),
       hit_effect: %(@animation_id = 1),
-      collide_effect: %(projectile.piercing = -1; 
-                        RPG::SE.new("Monster3", 80, 150).play)
+      collide_effect: %(RPG::SE.new("Monster3", 80, 150).play;
+                        projectile.need_dispose = true)
     },
     3 => {
       character_name: "$Arrow",
@@ -48,16 +50,17 @@ module ZABS_Setup
     end_effect: %()
   }
   HIT_COOLDOWN_TIME = 30
-  TURN_UPDATE_TIME = 120
+  END_TURN_TIME = 120
   DEATH_FADE_RATE = 4
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
+  KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
 #----------------------------------------------------------------------------
 # * Regular Expressions
 #----------------------------------------------------------------------------
   BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
   PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
   COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
-  EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(\d+)/i
+  EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
   IMMOVABLE_REGEX = /<immovable>/i
   SIZE_REGEX = /<size:\s*(\d+)/i
   HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
@@ -75,7 +78,7 @@ module ZABS_Input
   #--------------------------------------------------------------------------
   # * Initial Setup - key_map
   #--------------------------------------------------------------------------
-  @key_map = {}
+  @key_map = ZABS_Setup::KEY_MAP_EXTRA.dup
   (0..9).each {|x| @key_map.store("NUMBER_#{x}".intern, x.to_s.ord)}
   ("A".."Z").each {|x| @key_map.store("LETTER_#{x}".intern, x.ord)}
   #--------------------------------------------------------------------------
@@ -102,70 +105,59 @@ module ZABS_Input
   # * New Class Method - trigger?
   #--------------------------------------------------------------------------
   def self.trigger?(key)
-    (1..2) === @key_states[key]
+    @key_states[key].between?(1, 2)
   end
 end
 
-module Input
-  #--------------------------------------------------------------------------
-  # * Alias Class Method - update
-  #--------------------------------------------------------------------------
-  class << self
-    alias zabs_input_update update
-  end
-  def self.update
-    ZABS_Input.update
-    zabs_input_update
-  end
-end
-
-module ZABS_ItemNotes
+module ZABS_Usable
   #--------------------------------------------------------------------------
   # * New Method - abs_item?
   #--------------------------------------------------------------------------
   def abs_item?
-    projectile
+    projectile > 0
   end
   #--------------------------------------------------------------------------
   # * New Method - projectile
   #--------------------------------------------------------------------------
   def projectile
+    return @projectile if @projectile
     match = @note[ZABS_Setup::PROJECTILE_REGEX, 1]
-    match.to_i if match
+    @projectile = match ? match.to_i : -1
   end
   #--------------------------------------------------------------------------
   # * New Method - cooldown
   #--------------------------------------------------------------------------
   def cooldown
-    @note[ZABS_Setup::COOLDOWN_REGEX, 1].to_i
+    @cooldown ||= @note[ZABS_Setup::COOLDOWN_REGEX, 1].to_i
   end
 end
 
-module ZABS_BattlerNotes
+module ZABS_Attackable
   #--------------------------------------------------------------------------
   # * New Method - immovable?
   #--------------------------------------------------------------------------
   def immovable?
-    @note =~ ZABS_Setup::IMMOVABLE_REGEX
+    @immovable ||= @note =~ ZABS_Setup::IMMOVABLE_REGEX
   end
   #--------------------------------------------------------------------------
   # * New Method - size
   #--------------------------------------------------------------------------
   def size
+    return @size if @size
     match = @note[ZABS_Setup::SIZE_REGEX, 1].to_i
-    match > 0 ? match : 1
+    @size = match > 0 ? match : 1
   end
   #--------------------------------------------------------------------------
   # * New Method - hit_effect
   #--------------------------------------------------------------------------
   def hit_effect
-    @note[ZABS_Setup::HIT_EFFECT_REGEX, 1].to_s
+    @hit_effect ||= @note[ZABS_Setup::HIT_EFFECT_REGEX, 1].to_s
   end
   #--------------------------------------------------------------------------
   # * New Method - death_effect
   #--------------------------------------------------------------------------
   def death_effect
-    @note[ZABS_Setup::DEATH_EFFECT_REGEX, 1].to_s
+    @death_effect ||= @note[ZABS_Setup::DEATH_EFFECT_REGEX, 1].to_s
   end
 end
 
@@ -174,13 +166,14 @@ class RPG::BaseItem
   # * New Method - battle_tags
   #--------------------------------------------------------------------------
   def battle_tags
+    return @battle_tags if @battle_tags
     match = @note.scan(ZABS_Setup::BATTLE_TAGS_REGEX).to_a
-    match.join(" ").split(/\s+/)
+    @battle_tags = match.join(" ").split(/\s+/)
   end
 end
 
-class RPG::UsableItem
-  include ZABS_ItemNotes
+class RPG::UsableItem < RPG::BaseItem
+  include ZABS_Usable
   #--------------------------------------------------------------------------
   # * New Method - effect_item
   #--------------------------------------------------------------------------
@@ -189,35 +182,41 @@ class RPG::UsableItem
   end
 end
 
-class RPG::EquipItem
-  include ZABS_ItemNotes
+class RPG::EquipItem < RPG::BaseItem
+  include ZABS_Usable
   #--------------------------------------------------------------------------
   # * New Method - effect_item
   #--------------------------------------------------------------------------
   def effect_item
-    match = @note[ZABS_Setup::EFFECT_ITEM_REGEX, 1]
-    $data_skills[match ? match : 1]
+    return @effect_item if @effect_item
+    match = @note[ZABS_Setup::EFFECT_ITEM_REGEX].to_a
+    @effect_item = case match[0]
+    when "skill" then $data_skills[match[1]]
+    when "item" then $data_items[match[1]]
+    else $data_skills[1]
+    end
   end
 end
 
-class RPG::Actor
-  include ZABS_BattlerNotes
+class RPG::Actor < RPG::BaseItem
+  include ZABS_Attackable
 end
 
-class RPG::Enemy
-  include ZABS_BattlerNotes
+class RPG::Enemy < RPG::BaseItem
+  include ZABS_Attackable
   #--------------------------------------------------------------------------
   # * New Method - respawn_time
   #--------------------------------------------------------------------------
   def respawn_time
-    match = @note[ZABS_Setup::RESPAWN_TIME_REGEX, 1]
-    match.to_i if match
+    return @respawn_time if @respawn_time
+    match = @note[ZABS_Setup::RESPAWN_TIME_REGEX, 1].to_i
+    @respawn_time = match > 0 ? match : -1
   end
   #--------------------------------------------------------------------------
   # * New Method - respawn_effect
   #--------------------------------------------------------------------------
   def respawn_effect
-    @note[ZABS_Setup::RESPAWN_EFFECT_REGEX, 1].to_s
+    @respawn_effect ||= @note[ZABS_Setup::RESPAWN_EFFECT_REGEX, 1].to_s
   end
 end
 
@@ -228,16 +227,8 @@ module ZABS_Battler
   #--------------------------------------------------------------------------
   def initialize(*args)
     super
-    @update_time = ZABS_Setup::TURN_UPDATE_TIME
+    @end_turn_time = ZABS_Setup::END_TURN_TIME
     @item_cooldown = Hash.new(0)
-  end
-  #--------------------------------------------------------------------------
-  # * Overwrite Method - usable?
-  #--------------------------------------------------------------------------
-  def usable?(item)
-    return unless @item_cooldown[item].zero?
-    return equippable?(item) if item.is_a?(RPG::EquipItem)
-    return super
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - use_item
@@ -250,20 +241,20 @@ module ZABS_Battler
   # * New Method - update_item_cooldown
   #--------------------------------------------------------------------------
   def update_item_cooldown
-    @item_cooldown.each {|k, v| @item_cooldown[k] = v.pred unless v.zero?}
+    @item_cooldown.each {|k, v| @item_cooldown[k] -= 1 unless v.zero?}
   end
   #--------------------------------------------------------------------------
   # * Frame Update
   #--------------------------------------------------------------------------
   def update
     update_item_cooldown
-    return (@update_time -= 1) unless @update_time.zero?
-    @update_time = ZABS_Setup::TURN_UPDATE_TIME
+    return (@end_turn_time -= 1) unless @end_turn_time.zero?
+    @end_turn_time = ZABS_Setup::END_TURN_TIME
     on_turn_end
     refresh
   end
 end
-
+ 
 module ZABS_Character
   #--------------------------------------------------------------------------
   # * Object Initialization
@@ -301,7 +292,7 @@ module ZABS_Character
   # * New Method - use_abs_armor
   #--------------------------------------------------------------------------
   def use_abs_armor(armor_id)
-    process_map_item($data_armor[armor_id])
+    process_map_item($data_armors[armor_id])
   end
   #--------------------------------------------------------------------------
   # * New Method - process_map_item
@@ -322,9 +313,9 @@ module ZABS_Character
     battler.alive? && @hit_cooldown.zero?
   end
   #--------------------------------------------------------------------------
-  # * New Method - battle_tags_valid?
+  # * New Method - battle_tags_match?
   #--------------------------------------------------------------------------
-  def battle_tags_valid?(projectile)
+  def battle_tags_match?(projectile)
     (battler.data.battle_tags & projectile.item.battle_tags).any?
   end
   #--------------------------------------------------------------------------
@@ -337,7 +328,7 @@ module ZABS_Character
   # * New Method - apply_projectile
   #--------------------------------------------------------------------------
   def apply_projectile(projectile)
-    return unless attackable? && battle_tags_valid?(projectile)
+    return unless attackable? && battle_tags_match?(projectile)
     @hit_cooldown = ZABS_Setup::HIT_COOLDOWN_TIME
     battler.item_apply(projectile.battler, projectile.item.effect_item)
     battler.result.hit? ? process_hit(projectile) : process_miss
@@ -384,6 +375,13 @@ end
 class Game_Actor < Game_Battler
   include ZABS_Battler
   alias_method :data, :actor
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - usable?
+  #--------------------------------------------------------------------------
+  def usable?(item)
+    return false unless @item_cooldown[item].zero?
+    return super(item.effect_item)
+  end
 end
 
 class Game_Party < Game_Unit
@@ -440,7 +438,9 @@ class Game_Map
   # * New Method - entities_xyd
   #--------------------------------------------------------------------------
   def entities_xyd(x, y, d)
-    enemies_xyd(x, y, d) + projectiles_xyd(x, y, d)
+    arr = enemies_xyd(x, y, d) + projectiles_xyd(x, y, d)
+    arr.push($game_player) if $game_player.in_range?(x, y, d)
+    return arr
   end
   #--------------------------------------------------------------------------
   # * New Method - add_projectile
@@ -483,6 +483,11 @@ class Game_Player < Game_Character
   # * New Method - process_normal_item
   #--------------------------------------------------------------------------
   def process_normal_item(item) # TEMP
+    if item.for_user?
+      return unless @battler.item_test(actor, item)
+      actor.use_item(item)
+      actor.item_apply(actor, item)
+    end
   end
   #--------------------------------------------------------------------------
   # * New Method - update_death
@@ -500,7 +505,7 @@ class Game_Event < Game_Character
   # * New Method - enemy?
   #--------------------------------------------------------------------------
   def enemy?
-    is_a?(Game_EnemyEvent)
+    return false
   end
   #--------------------------------------------------------------------------
   # * New Method - to_enemyevent
@@ -519,21 +524,21 @@ class Spriteset_Map
   #--------------------------------------------------------------------------
   # * Alias Method - create_characters
   #--------------------------------------------------------------------------
-  alias zabs_map_create_characters create_characters
+  alias zabs_spriteset_map_create_characters create_characters
   def create_characters
-    zabs_map_create_characters
+    zabs_spriteset_map_create_characters
     create_projectiles
   end
   #--------------------------------------------------------------------------
   # * Alias Method - update_characters
   #--------------------------------------------------------------------------
-  alias zabs_map_update_characters update_characters
+  alias zabs_spriteset_map_update_characters update_characters
   def update_characters
     if $game_map.need_refresh_projectiles
       refresh_projectiles
       $game_map.need_refresh_projectiles = false
     end
-    zabs_map_update_characters
+    zabs_spriteset_map_update_characters
   end
   #--------------------------------------------------------------------------
   # * New Method - create_projectiles
@@ -561,6 +566,17 @@ class Spriteset_Map
   end
 end
 
+class Scene_Map
+  #--------------------------------------------------------------------------
+  # * Alias Method - update
+  #--------------------------------------------------------------------------
+  alias zabs_scene_map_update update
+  def update
+    zabs_scene_map_update
+    ZABS_Input.update
+  end
+end
+
 class Game_MapEnemy < Game_Battler
   include ZABS_Battler
   #--------------------------------------------------------------------------
@@ -570,6 +586,14 @@ class Game_MapEnemy < Game_Battler
     super()
     @enemy_id = enemy_id
     @hp, @mp = mhp, mmp
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - usable?
+  #--------------------------------------------------------------------------
+  def usable?(item)
+    return false unless @item_cooldown[item].zero?
+    return skill_cost_payable?(item) if item.is_a?(RPG::Skill)
+    return item.is_a?(ZABS_Usable)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - param_base
@@ -592,15 +616,16 @@ class Game_MapEnemy < Game_Battler
 end
 
 class Game_Projectile < Game_Character
-  attr_accessor :piercing
-  attr_reader :battler, :item, :hit_jump, :knockback, :size, :hit_effect
-  attr_reader :collide_effect, :need_dispose
+  attr_accessor :piercing, :need_dispose
+  attr_reader :type, :battler, :item, :hit_jump, :knockback, :size
+  attr_reader :hit_effect, :collide_effect
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
   def self.spawn(*args)
     projectile = self.new(*args)
     $game_map.add_projectile(projectile)
+    return projectile
   end
   #--------------------------------------------------------------------------
   # * Object Initialization
@@ -616,8 +641,7 @@ class Game_Projectile < Game_Character
   # * Overwrite Method - collide_with_events?
   #--------------------------------------------------------------------------
   def collide_with_events?(x, y)
-    return false unless super
-    return true unless @battler_through
+    return super unless @battler_through
     events = $game_map.events_xy_nt(x, y).reject(&:enemy?)
     events.any?(&:normal_priority?)
   end
@@ -645,9 +669,7 @@ class Game_Projectile < Game_Character
   # * New Method - valid_targets
   #--------------------------------------------------------------------------
   def valid_targets
-    arr = $game_map.entities_xyd(@x, @y, @size)
-    arr.reject! {|x| x.equal?(self)}
-    arr.push($game_player) if $game_player.in_range?(@x, @y, @size)
+    arr = $game_map.entities_xyd(@x, @y, @size).reject {|x| x.equal?(self)}
     arr.reject! {|x| x.equal?(@character)} if @ignore_user
     return arr
   end
@@ -711,6 +733,12 @@ class Game_EnemyEvent < Game_Event
     super
   end
   #--------------------------------------------------------------------------
+  # * Overwrite Method - enemy?
+  #--------------------------------------------------------------------------
+  def enemy?
+    return true
+  end
+  #--------------------------------------------------------------------------
   # * Overwrite Method - to_enemyevent
   #--------------------------------------------------------------------------
   def to_enemyevent
@@ -749,7 +777,7 @@ class Game_EnemyEvent < Game_Event
   # * New Method - process_respawn
   #--------------------------------------------------------------------------
   def process_respawn
-    return if @respawn_time.nil?
+    return if @respawn_time == -1
     @respawn_time > 0 ? @respawn_time -= 1 : respawn
   end
   #--------------------------------------------------------------------------
