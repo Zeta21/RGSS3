@@ -12,17 +12,6 @@ module ZABS_Setup
       hit_effect: %(@animation_id = 111)
     },
     2 => {
-      character_name: "Monster3",
-      through: true,
-      hit_jump: false,
-      ignore_user: false,
-      distance: 10,
-      initial_effect: %(RPG::SE.new("Monster3", 80).play),
-      hit_effect: %(@animation_id = 111),
-      collide_effect: %(RPG::SE.new("Monster3", 80, 150).play;
-                        projectile.need_dispose = true)
-    },
-    3 => {
       character_name: "$Arrow",
       move_speed: 6,
       distance: 10,
@@ -62,6 +51,7 @@ module ZABS_Setup
   COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
   EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
   IMMOVABLE_REGEX = /<immovable>/i
+  EVADE_JUMP_REGEX = /<evade[ _]jump>/i
   SIZE_REGEX = /<size:\s*(\d+)/i
   HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
   DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
@@ -130,6 +120,16 @@ module ZABS_Usable
   def cooldown
     @cooldown ||= @note[ZABS_Setup::COOLDOWN_REGEX, 1].to_i
   end
+  #--------------------------------------------------------------------------
+  # * New Method - effect_item
+  #--------------------------------------------------------------------------
+  def effect_item
+    match = @note.scan(ZABS_Setup::EFFECT_ITEM_REGEX).to_a.flatten
+    effect_item = case match.first
+    when "skill" then $data_skills[match[1].to_i]
+    when "item" then $data_items[match[1].to_i]
+    end
+  end
 end
 
 module ZABS_Attackable
@@ -138,6 +138,12 @@ module ZABS_Attackable
   #--------------------------------------------------------------------------
   def immovable?
     @immovable ||= @note =~ ZABS_Setup::IMMOVABLE_REGEX
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - evade_jump?
+  #--------------------------------------------------------------------------
+  def evade_jump?
+    @evade_jump ||= @note =~ ZABS_Setup::EVADE_JUMP_REGEX
   end
   #--------------------------------------------------------------------------
   # * New Method - size
@@ -175,26 +181,22 @@ end
 class RPG::UsableItem < RPG::BaseItem
   include ZABS_Usable
   #--------------------------------------------------------------------------
-  # * New Method - effect_item
+  # * Overwrite Method - effect_item
   #--------------------------------------------------------------------------
   def effect_item
-    return self
+    return @effect_item if @effect_item
+    @effect_item = super || self
   end
 end
 
 class RPG::EquipItem < RPG::BaseItem
   include ZABS_Usable
   #--------------------------------------------------------------------------
-  # * New Method - effect_item
+  # * Overwrite Method - effect_item
   #--------------------------------------------------------------------------
   def effect_item
     return @effect_item if @effect_item
-    match = @note.scan(ZABS_Setup::EFFECT_ITEM_REGEX).to_a.first
-    @effect_item = case match.first
-    when "skill" then $data_skills[match[1].to_i]
-    when "item" then $data_items[match[1].to_i]
-    else $data_skills[1]
-    end
+    @effect_item = super || $data_skills[1]
   end
 end
 
@@ -313,6 +315,12 @@ module ZABS_Character
     end
   end
   #--------------------------------------------------------------------------
+  # * Overwrite Method - size
+  #--------------------------------------------------------------------------
+  def size
+    battler.data.size
+  end
+  #--------------------------------------------------------------------------
   # * New Method - attackable?
   #--------------------------------------------------------------------------
   def attackable?
@@ -323,12 +331,6 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def battle_tags_match?(projectile)
     (battler.data.battle_tags & projectile.item.battle_tags).any?
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - size
-  #--------------------------------------------------------------------------
-  def size
-    battler.data.size
   end
   #--------------------------------------------------------------------------
   # * New Method - apply_projectile
@@ -353,6 +355,7 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def process_miss
     eval(ZABS_Setup::MISS_EFFECT)
+    jump(0, 0) if battler.result.evaded && battler.data.evade_jump?
   end
   #--------------------------------------------------------------------------
   # * New Method - process_knockback
@@ -466,6 +469,12 @@ class Game_Map
 end
 
 class Game_Character < Game_CharacterBase
+  #--------------------------------------------------------------------------
+  # * New Method - size
+  #--------------------------------------------------------------------------
+  def size
+    return 0
+  end
   #--------------------------------------------------------------------------
   # * New Method - in_range?
   #--------------------------------------------------------------------------
@@ -600,6 +609,11 @@ class Game_MapEnemy < Game_Battler
     return false unless @item_cooldown[item].zero?
     return skill_cost_payable?(item) if item.is_a?(RPG::Skill)
     return item.is_a?(ZABS_Usable)
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - consume_item
+  #--------------------------------------------------------------------------
+  def consume_item(item)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - param_base
