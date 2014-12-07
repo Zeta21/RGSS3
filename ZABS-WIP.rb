@@ -125,7 +125,7 @@ module ZABS_Usable
   #--------------------------------------------------------------------------
   def effect_item
     match = @note.scan(ZABS_Setup::EFFECT_ITEM_REGEX).to_a.flatten
-    effect_item = case match.first
+    case match.first
     when "skill" then $data_skills[match[1].to_i]
     when "item" then $data_items[match[1].to_i]
     end
@@ -404,8 +404,7 @@ class Game_Party < Game_Unit
 end
 
 class Game_Map
-  attr_accessor :need_refresh_projectiles
-  attr_reader :projectiles
+  attr_reader :projectiles, :projectile_sprite_queue
   #--------------------------------------------------------------------------
   # * Alias Method - setup
   #--------------------------------------------------------------------------
@@ -414,7 +413,7 @@ class Game_Map
     zabs_map_setup(map_id)
     setup_enemyevents
     @projectiles = []
-    @need_refresh_projectiles = true
+    @projectile_sprite_queue = []
   end
   #--------------------------------------------------------------------------
   # * Alias Method - update
@@ -456,14 +455,13 @@ class Game_Map
   #--------------------------------------------------------------------------
   def add_projectile(projectile)
     @projectiles.push(projectile)
-    @need_refresh_projectiles = true
+    @projectile_sprite_queue.push(projectile)
   end
   #--------------------------------------------------------------------------
   # * New Method - update_projectiles
   #--------------------------------------------------------------------------
   def update_projectiles
-    valid = @projectiles.reject!(&:need_dispose)
-    @need_refresh_projectiles = true if valid
+    @projectiles.reject!(&:need_dispose)
     @projectiles.each(&:update)
   end
 end
@@ -549,10 +547,8 @@ class Spriteset_Map
   #--------------------------------------------------------------------------
   alias zabs_spriteset_map_update_characters update_characters
   def update_characters
-    if $game_map.need_refresh_projectiles
-      refresh_projectiles
-      $game_map.need_refresh_projectiles = false
-    end
+    dispose_projectiles
+    update_projectile_queue
     zabs_spriteset_map_update_characters
   end
   #--------------------------------------------------------------------------
@@ -564,20 +560,23 @@ class Spriteset_Map
     end
   end
   #--------------------------------------------------------------------------
+  # * New Method - update_projectile_queue
+  #--------------------------------------------------------------------------
+  def update_projectile_queue
+    $game_map.projectile_sprite_queue.each do |x|
+      @character_sprites.push(Sprite_Character.new(@viewport1, x))
+    end
+    $game_map.projectile_sprite_queue.clear
+  end
+  #--------------------------------------------------------------------------
   # * New Method - dispose_projectiles
   #--------------------------------------------------------------------------
   def dispose_projectiles
-    @character_sprites.each do |x|
-      x.dispose if x.character.is_a?(Game_Projectile)
+    sprites = @character_sprites.select do |x|
+      x.character.is_a?(Game_Projectile) && x.character.need_dispose
     end
+    sprites.each(&:dispose)
     @character_sprites.reject!(&:disposed?)
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - refresh_projectiles
-  #--------------------------------------------------------------------------
-  def refresh_projectiles
-    dispose_projectiles
-    create_projectiles
   end
 end
 
@@ -589,6 +588,15 @@ class Scene_Map
   def update
     zabs_scene_map_update
     ZABS_Input.update
+  end
+end
+
+class Scene_ItemBase < Scene_MenuBase
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - user
+  #--------------------------------------------------------------------------
+  def user
+    $game_party.members[@actor_window.index]
   end
 end
 
