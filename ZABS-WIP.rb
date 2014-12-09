@@ -31,17 +31,20 @@ module ZABS_Setup
     distance: 1,
     knockback: 0,
     piercing: 0,
-    ignore: :ally,
+    ignore: :user,
     initial_effect: %(),
     update_effect: %(),
     collide_effect: %(),
     hit_effect: %(),
     end_effect: %()
   }
-  SELF_ITEM_USAGE = true
   HIT_COOLDOWN_TIME = 30
   END_TURN_TIME = 120
   DEATH_FADE_RATE = 4
+#----------------------------------------------------------------------------
+# * Advanced Settings
+#----------------------------------------------------------------------------
+  SELF_ITEM_USAGE = true
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
   EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
   KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
@@ -521,7 +524,7 @@ class Game_Map
   # * New Method - entities
   #--------------------------------------------------------------------------
   def entities
-    @events.values.select(&:battler) + @projectiles + [$game_player]
+    @events.values.select(&:battler).concat(@projectiles).push($game_player)
   end
   #--------------------------------------------------------------------------
   # * New Method - entities_xyd
@@ -643,8 +646,7 @@ class Game_Event < Game_Character
   # * New Method - process_death
   #--------------------------------------------------------------------------
   def process_death
-    eval(@battler.data.death_effect) unless @death_evaled
-    @death_evaled = true
+    eval(@battler.data.death_effect)
     @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
   end
   #--------------------------------------------------------------------------
@@ -770,8 +772,7 @@ class Game_MapEnemy < Game_Battler
   #--------------------------------------------------------------------------
   def usable?(item)
     return false unless @item_cooldown[item].zero?
-    return super(item) if item.is_a?(RPG::Skill)
-    return item.is_a?(ZABS_Usable)
+    item.is_a?(RPG::Skill) ? super(item) : item.is_a?(ZABS_Usable)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - consume_item
@@ -823,14 +824,14 @@ class Game_Projectile < Game_Character
     @character, @type, @item = character, type, item
     @direction, @battler = character.direction, character.battler
     initialize_projectile
+    eval(@initial_effect)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - collide_with_events?
   #--------------------------------------------------------------------------
   def collide_with_events?(x, y)
     return super unless @battler_through
-    events = $game_map.events_xy_nt(x, y).reject(&:battler)
-    events.any?(&:normal_priority?)
+    $game_map.events_xy_nt(x, y).reject(&:battler).any?(&:normal_priority?)
   end
   #--------------------------------------------------------------------------
   # * New Method - initialize_projectile
@@ -839,7 +840,6 @@ class Game_Projectile < Game_Character
     attrs = ZABS_Setup::PROJECTILE_DEFAULT.merge(data)
     attrs.each {|k, v| instance_variable_set("@#{k}", v)}
     @ignore = (@ignore.to_s + "?").intern
-    eval(@initial_effect)
   end
   #--------------------------------------------------------------------------
   # * New Method - stopping?
@@ -858,9 +858,9 @@ class Game_Projectile < Game_Character
   #--------------------------------------------------------------------------
   def valid_targets
     arr = $game_map.entities_xyd(@x, @y, @size) - [self]
-    return arr if @ignore == :none?
-    return arr - [@character] if @ignore == :user?
-    arr.reject(&method(@ignore))
+    arr.delete(@character) if @ignore == :user?
+    arr.reject!(&method(@ignore)) if respond_to?(@ignore)
+    return arr
   end
   #--------------------------------------------------------------------------
   # * New Method - apply_projectile
