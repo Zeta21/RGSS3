@@ -1,69 +1,75 @@
+#============================================================================
+# ** Start of configuration
+#============================================================================
 module ZABS_Setup
-#----------------------------------------------------------------------------
-  PROJECTILES = { # Do not delete this line.
-#----------------------------------------------------------------------------
-    1 => {
-      character_name: "!Other1",
-      distance: 10,
-      knockback: 1,
-      piercing: 5,
-      initial_effect: %(RPG::SE.new("Earth9", 80).play;
-                        jump(0, 0)),
-      hit_effect: %(@animation_id = 111)
-    },
-    2 => {
-      character_name: "$Arrow",
-      move_speed: 6,
-      distance: 10,
-      knockback: 1,
-      initial_effect: %(RPG::SE.new("Bow2", 80).play),
-      hit_effect: %(@animation_id = 111)
-    },
-#----------------------------------------------------------------------------
-  } # Do not delete this line.
-#----------------------------------------------------------------------------
-  PROJECTILE_DEFAULT = {
-    move_speed: 5,
-    hit_jump: true,
-    battler_through: true,
-    allow_collision: true,
-    size: 1,
-    distance: 1,
-    knockback: 0,
-    piercing: 0,
-    ignore: :user,
-    initial_effect: %(),
-    update_effect: %(),
-    collide_effect: %(),
-    hit_effect: %(),
-    end_effect: %()
-  }
-  HIT_COOLDOWN_TIME = 30
-  END_TURN_TIME = 120
-  DEATH_FADE_RATE = 4
-#----------------------------------------------------------------------------
-# * Advanced Settings
-#----------------------------------------------------------------------------
-  SELF_ITEM_USAGE = true
-  MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
-  EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
-  KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
-#----------------------------------------------------------------------------
-# * Regular Expressions
-#----------------------------------------------------------------------------
-  BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
-  PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
-  COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
-  EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
-  IMMOVABLE_REGEX = /<immovable>/i
-  EVADE_JUMP_REGEX = /<evade[ _]jump>/i
-  SIZE_REGEX = /<size:\s*(\d+)/i
-  HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
-  DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
-  RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
-  RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
-  ENEMY_REGEX = /<enemy:\s*(\d+)>/i
+  #--------------------------------------------------------------------------
+    PROJECTILES = { # Do not delete this line.
+  #--------------------------------------------------------------------------
+      1 => {
+        character_name: "!Other1",
+        distance: 10,
+        knockback: 1,
+        piercing: 5,
+        initial_effect: %(RPG::SE.new("Earth9", 80).play;
+                          jump(0, 0)),
+        hit_effect: %(@animation_id = 111)
+      },
+      2 => {
+        character_name: "$Arrow",
+        move_speed: 6,
+        distance: 10,
+        knockback: 1,
+        initial_effect: %(RPG::SE.new("Bow2", 80).play),
+        hit_effect: %(@animation_id = 111)
+      },
+  #--------------------------------------------------------------------------
+    } # Do not delete this line.
+  #--------------------------------------------------------------------------
+    PROJECTILE_DEFAULT = {
+      move_speed: 5,
+      hit_jump: true,
+      battler_through: true,
+      allow_collision: true,
+      size: 1,
+      distance: 1,
+      knockback: 0,
+      piercing: 0,
+      ignore: :user,
+      initial_effect: %(),
+      update_effect: %(),
+      collide_effect: %(),
+      hit_effect: %(),
+      end_effect: %()
+    }
+    HIT_COOLDOWN_TIME = 30
+    END_TURN_TIME = 120
+    DEATH_FADE_RATE = 4
+  #--------------------------------------------------------------------------
+  # * Advanced Settings
+  #--------------------------------------------------------------------------
+    SELF_ITEM_USAGE = true
+    MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
+    EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
+    KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
+  #--------------------------------------------------------------------------
+  # * Regular Expressions
+  #--------------------------------------------------------------------------
+    BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
+    PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
+    COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
+    EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
+    IMMOVABLE_REGEX = /<immovable>/i
+    EVADE_JUMP_REGEX = /<evade[ _]jump>/i
+    SIZE_REGEX = /<size:\s*(\d+)/i
+    HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
+    DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
+    RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
+    RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
+    ENEMY_REGEX = /<enemy:\s*(\d+)>/i
 end
+#============================================================================
+# ** End of configuration
+#============================================================================
 
 #============================================================================
 # ** New Module - ZABS_input
@@ -206,6 +212,12 @@ class RPG::UsableItem < RPG::BaseItem
   def effect_item
     return @effect_item if @effect_item
     @effect_item = super || self
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - for_allies?
+  #--------------------------------------------------------------------------
+  def for_allies?
+    @scope.between?(7, 10)
   end
 end
 
@@ -371,8 +383,8 @@ module ZABS_Character
   # * New Method - item_map_usable?
   #--------------------------------------------------------------------------
   def item_map_usable?(item)
-    return true if item.abs_item? && battler.usable?(item)
-    item.is_a?(RPG::UsableItem)
+    return false unless battler.usable?(item)
+    item.abs_item? || item.is_a?(RPG::UsableItem)
   end
   #--------------------------------------------------------------------------
   # * New Method - size
@@ -415,6 +427,14 @@ module ZABS_Character
     else
       process_normal_item(item)
     end
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_normal_item
+  #--------------------------------------------------------------------------
+  def process_normal_item(item)
+    return unless item.for_user? && @battler.item_test(actor, item)
+    actor.use_item(item)
+    actor.item_apply(actor, item)
   end
   #--------------------------------------------------------------------------
   # * New Method - apply_projectile
@@ -555,25 +575,27 @@ class Game_Player < Game_Character
   include ZABS_Character
   alias_method :battler, :actor
   #--------------------------------------------------------------------------
+  # * Overwrite Method - item_map_usable?
+  #--------------------------------------------------------------------------
+  def item_map_usable?(item)
+    return true if item.is_a?(RPG::UsableItem) && item.for_allies?
+    return super
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - process_normal_item
+  #--------------------------------------------------------------------------
+  def process_normal_item(item)
+    return super unless item.for_allies?
+    SceneManager.call(Scene_MapItem)
+    SceneManager.scene.item = item
+  end
+  #--------------------------------------------------------------------------
   # * Alias Method - update
   #--------------------------------------------------------------------------
   alias zabs_player_update update
   def update
     zabs_player_update
     update_death
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - process_normal_item
-  #--------------------------------------------------------------------------
-  def process_normal_item(item)
-    if item.for_user?
-      return unless @battler.item_test(actor, item)
-      actor.use_item(item)
-      actor.item_apply(actor, item)
-    elsif item.for_friend?
-      SceneManager.call(Scene_MapItem)
-      SceneManager.scene.item = item
-    end
   end
   #--------------------------------------------------------------------------
   # * New Method - update_death
@@ -628,15 +650,7 @@ class Game_Event < Game_Character
   # * New Method - enemy_id
   #--------------------------------------------------------------------------
   def enemy_id
-    @event.name[ZABS_Setup::ENEMY_REGEX, 1].to_i
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - process_normal_item
-  #--------------------------------------------------------------------------
-  def process_normal_item(item)
-    return unless item.for_user? && @battler.item_test(@battler, item)
-    @battler.use_item(item)
-    @battler.item_apply(@battler, item)
+    @enemy_id ||= @event.name[ZABS_Setup::ENEMY_REGEX, 1].to_i
   end
   #--------------------------------------------------------------------------
   # * New Method - respawn
@@ -747,12 +761,12 @@ class Scene_ItemBase < Scene_MenuBase
   #--------------------------------------------------------------------------
   # * Alias Method - user
   #--------------------------------------------------------------------------
-  alias zabs_scene_item_user user
+  alias zabs_scene_itembase_user user
   def user
     if ZABS_Setup::SELF_ITEM_USAGE
       $game_party.members[@actor_window.index]
     else
-      zabs_scene_item_user
+      zabs_scene_itembase_user
     end
   end
 end
