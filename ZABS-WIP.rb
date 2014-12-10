@@ -371,8 +371,8 @@ module ZABS_Character
   # * New Method - item_map_usable?
   #--------------------------------------------------------------------------
   def item_map_usable?(item)
-    return false unless battler.usable?(item)
-    item.abs_item? || item.is_a?(RPG::UsableItem)
+    return true if item.abs_item? && battler.usable?(item)
+    item.is_a?(RPG::UsableItem)
   end
   #--------------------------------------------------------------------------
   # * New Method - size
@@ -565,11 +565,14 @@ class Game_Player < Game_Character
   #--------------------------------------------------------------------------
   # * New Method - process_normal_item
   #--------------------------------------------------------------------------
-  def process_normal_item(item) # TEMP
+  def process_normal_item(item)
     if item.for_user?
       return unless @battler.item_test(actor, item)
       actor.use_item(item)
       actor.item_apply(actor, item)
+    elsif item.for_friend?
+      SceneManager.call(Scene_MapItem)
+      SceneManager.scene.item = item
     end
   end
   #--------------------------------------------------------------------------
@@ -740,7 +743,7 @@ end
 #============================================================================
 # ** Reopen Class - Scene_Item
 #============================================================================
-class Scene_Item < Scene_ItemBase
+class Scene_ItemBase < Scene_MenuBase
   #--------------------------------------------------------------------------
   # * Alias Method - user
   #--------------------------------------------------------------------------
@@ -900,5 +903,38 @@ class Game_Projectile < Game_Character
     update_effects
     update_end
     move_projectile
+  end
+end
+
+#============================================================================
+# ** New Subclass - Scene_MapItem
+#============================================================================
+class Scene_MapItem < Scene_ItemBase
+  attr_accessor :item
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - start
+  #--------------------------------------------------------------------------
+  def start
+    super
+    show_sub_window(@actor_window)
+    @actor_window.select_last
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - cursor_left?
+  #--------------------------------------------------------------------------
+  def cursor_left?
+    $game_player.screen_x <= Graphics.width / 2
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - activate_item_window
+  #--------------------------------------------------------------------------
+  def activate_item_window
+    SceneManager.return
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - play_se_for_item
+  #--------------------------------------------------------------------------
+  def play_se_for_item
+    Sound.play_use_item
   end
 end
