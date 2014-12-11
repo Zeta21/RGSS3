@@ -2,70 +2,69 @@
 # ** Start of configuration
 #============================================================================
 module ZABS_Setup
-  #--------------------------------------------------------------------------
-    PROJECTILES = { # Do not delete this line.
-  #--------------------------------------------------------------------------
-      1 => {
-        character_name: "!Other1",
-        distance: 10,
-        knockback: 1,
-        piercing: 5,
-        initial_effect: %(RPG::SE.new("Earth9", 80).play;
-                          jump(0, 0)),
-        hit_effect: %(@animation_id = 111)
-      },
-      2 => {
-        character_name: "$Arrow",
-        move_speed: 6,
-        distance: 10,
-        knockback: 1,
-        initial_effect: %(RPG::SE.new("Bow2", 80).play),
-        hit_effect: %(@animation_id = 111)
-      },
-  #--------------------------------------------------------------------------
-    } # Do not delete this line.
-  #--------------------------------------------------------------------------
-    PROJECTILE_DEFAULT = {
-      move_speed: 5,
-      hit_jump: true,
-      battler_through: true,
-      allow_collision: true,
-      size: 1,
-      distance: 1,
-      knockback: 0,
-      piercing: 0,
-      ignore: :user,
-      initial_effect: %(),
-      update_effect: %(),
-      collide_effect: %(),
-      hit_effect: %(),
-      end_effect: %()
-    }
-    HIT_COOLDOWN_TIME = 30
-    END_TURN_TIME = 120
-    DEATH_FADE_RATE = 4
-  #--------------------------------------------------------------------------
-  # * Advanced Settings
-  #--------------------------------------------------------------------------
-    SELF_ITEM_USAGE = true
-    MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
-    EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
-    KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
-  #--------------------------------------------------------------------------
-  # * Regular Expressions
-  #--------------------------------------------------------------------------
-    BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
-    PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
-    COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
-    EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
-    IMMOVABLE_REGEX = /<immovable>/i
-    EVADE_JUMP_REGEX = /<evade[ _]jump>/i
-    SIZE_REGEX = /<size:\s*(\d+)/i
-    HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
-    DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
-    RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
-    RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
-    ENEMY_REGEX = /<enemy:\s*(\d+)>/i
+#----------------------------------------------------------------------------
+  PROJECTILES = { # Do not delete this line.
+#----------------------------------------------------------------------------
+    1 => {
+      character_name: "!Other1",
+      distance: 10,
+      knockback: 1,
+      piercing: 5,
+      initial_effect: %(RPG::SE.new("Earth9", 80).play; jump(0, 0)),
+      hit_effect: %(@animation_id = 111)
+    },
+    2 => {
+      character_name: "$Arrow",
+      move_speed: 6,
+      distance: 10,
+      knockback: 1,
+      initial_effect: %(RPG::SE.new("Bow2", 80).play),
+      hit_effect: %(@animation_id = 111)
+    },
+#----------------------------------------------------------------------------
+  } # Do not delete this line.
+#----------------------------------------------------------------------------
+  PROJECTILE_DEFAULT = {
+    move_speed: 5,
+    hit_jump: true,
+    battler_through: true,
+    allow_collision: true,
+    size: 1,
+    distance: 1,
+    knockback: 0,
+    piercing: 0,
+    ignore: :user,
+    initial_effect: %(),
+    update_effect: %(),
+    collide_effect: %(),
+    hit_effect: %(),
+    end_effect: %()
+  }
+  HIT_COOLDOWN_TIME = 30
+  END_TURN_TIME = 120
+  DEATH_FADE_RATE = 4
+#----------------------------------------------------------------------------
+# * Advanced Settings
+#----------------------------------------------------------------------------
+  SELF_ITEM_USAGE = true
+  MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
+  EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
+  KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
+#----------------------------------------------------------------------------
+# * Regular Expressions
+#----------------------------------------------------------------------------
+  BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
+  PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
+  COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
+  EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
+  IMMOVABLE_REGEX = /<immovable>/i
+  EVADE_JUMP_REGEX = /<evade[ _]jump>/i
+  SIZE_REGEX = /<size:\s*(\d+)/i
+  HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
+  DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
+  RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
+  RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
+  ENEMY_REGEX = /<enemy:\s*(\d+)>/i
 end
 #============================================================================
 # ** End of configuration
@@ -569,6 +568,18 @@ class Game_Map
 end
 
 #============================================================================
+# ** Reopen Class - Game_CharacterBase
+#============================================================================
+class Game_CharacterBase
+  #--------------------------------------------------------------------------
+  # * New Method - draw_abs_hud?
+  #--------------------------------------------------------------------------
+  def draw_abs_hud?
+    return false
+  end
+end
+
+#============================================================================
 # ** Reopen Class - Game_Player
 #============================================================================
 class Game_Player < Game_Character
@@ -615,6 +626,12 @@ class Game_Event < Game_Character
   include ZABS_Character
   attr_reader :battler
   #--------------------------------------------------------------------------
+  # * Overwrite Method - draw_abs_hud?
+  #--------------------------------------------------------------------------
+  def draw_abs_hud?
+    @battler && @battler.alive? && (@battler.hp < @battler.mhp)
+  end
+  #--------------------------------------------------------------------------
   # * Alias Method - initialize
   #--------------------------------------------------------------------------
   alias zabs_event_initialize initialize
@@ -653,6 +670,12 @@ class Game_Event < Game_Character
     @enemy_id ||= @event.name[ZABS_Setup::ENEMY_REGEX, 1].to_i
   end
   #--------------------------------------------------------------------------
+  # * New Method - hp_rate
+  #--------------------------------------------------------------------------
+  def hp_rate
+    @battler.hp.to_f / @battler.mhp
+  end
+  #--------------------------------------------------------------------------
   # * New Method - respawn
   #--------------------------------------------------------------------------
   def respawn
@@ -687,6 +710,81 @@ class Game_Event < Game_Character
     return unless @battler
     @battler.update
     update_death
+  end
+end
+
+#============================================================================
+# ** Reopen Class - Sprite_Character
+#============================================================================
+class Sprite_Character < Sprite_Base
+  #--------------------------------------------------------------------------
+  # * Alias Method - update
+  #--------------------------------------------------------------------------
+  alias zabs_sprite_character_update update
+  def update
+    zabs_sprite_character_update
+    setup_abs_hud unless @hp_bar_sprite
+    update_abs_hud
+  end
+  #--------------------------------------------------------------------------
+  # * Alias Method - dispose
+  #--------------------------------------------------------------------------
+  alias zabs_sprite_character_dispose dispose
+  def dispose
+    dispose_abs_hud
+    zabs_sprite_character_dispose
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - hp_bar_back_color
+  #--------------------------------------------------------------------------
+  def hp_bar_back_color
+    return Color.new(0, 0, 0)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - hp_bar_front_color
+  #--------------------------------------------------------------------------
+  def hp_bar_front_color
+    params = case 100 * @character.hp_rate
+    when (0...25) then [255, 0, 0]
+    when (25...50) then [255, 128, 0]
+    when (50...75) then [255, 225, 0]
+    else [0, 225, 0]
+    end
+    return Color.new(*params)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - setup_abs_hud
+  #--------------------------------------------------------------------------
+  def setup_abs_hud
+    @hp_bar_sprite = Sprite.new(viewport)
+    @hp_bar_sprite.bitmap = Bitmap.new(48, 8)
+    @hp_bar_back_color = Color.new(0, 0, 0)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - dispose_abs_hud
+  #--------------------------------------------------------------------------
+  def dispose_abs_hud
+    @hp_bar_sprite.bitmap.clear
+    @hp_bar_sprite.dispose
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_abs_hud_position
+  #--------------------------------------------------------------------------
+  def update_abs_hud_position
+    @hp_bar_sprite.x = x - width / 2 - 4
+    @hp_bar_sprite.y = y - height - 4
+    @hp_bar_sprite.z = z + 200
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_abs_hud
+  #--------------------------------------------------------------------------
+  def update_abs_hud
+    @hp_bar_sprite.bitmap.clear
+    return unless @character.draw_abs_hud?
+    update_abs_hud_position
+    width = 38 * @character.hp_rate
+    @hp_bar_sprite.bitmap.fill_rect(0, 0, 40, 4, hp_bar_back_color)
+    @hp_bar_sprite.bitmap.fill_rect(1, 1, width, 2, hp_bar_front_color)
   end
 end
 
@@ -789,7 +887,7 @@ class Game_MapEnemy < Game_Battler
   #--------------------------------------------------------------------------
   def usable?(item)
     return false unless @item_cooldown[item].zero?
-    item.is_a?(RPG::Skill) ? super(item) : item.is_a?(ZABS_Usable)
+    item.is_a?(RPG::Skill) ? super : item.is_a?(ZABS_Usable)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - consume_item
