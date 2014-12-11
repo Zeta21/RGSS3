@@ -11,7 +11,7 @@ module ZABS_Setup
       knockback: 1,
       piercing: 5,
       initial_effect: %(RPG::SE.new("Earth9", 80).play; jump(0, 0)),
-      hit_effect: %(@animation_id = 111)
+      hit_effect: %(@animation_id = 111),
     },
     2 => {
       character_name: "$Arrow",
@@ -19,7 +19,7 @@ module ZABS_Setup
       distance: 10,
       knockback: 1,
       initial_effect: %(RPG::SE.new("Bow2", 80).play),
-      hit_effect: %(@animation_id = 111)
+      hit_effect: %(@animation_id = 111),
     },
 #----------------------------------------------------------------------------
   } # Do not delete this line.
@@ -38,11 +38,18 @@ module ZABS_Setup
     update_effect: %(),
     collide_effect: %(),
     hit_effect: %(),
-    end_effect: %()
+    end_effect: %(),
   }
   HIT_COOLDOWN_TIME = 30
   END_TURN_TIME = 120
   DEATH_FADE_RATE = 4
+  ABS_HUD_BACK_COLOR = [0, 0, 0, 255]
+  ABS_HUD_FRONT_COLORS = {
+    1 => [255, 0, 0, 255],
+    2 => [255, 128, 0, 255],
+    3 => [255, 255, 0, 255],
+    4 => [0, 255, 0, 255],
+  }
 #----------------------------------------------------------------------------
 # * Advanced Settings
 #----------------------------------------------------------------------------
@@ -572,9 +579,9 @@ end
 #============================================================================
 class Game_CharacterBase
   #--------------------------------------------------------------------------
-  # * New Method - draw_abs_hud?
+  # * New Method - draw_hud?
   #--------------------------------------------------------------------------
-  def draw_abs_hud?
+  def draw_hud?
     return false
   end
 end
@@ -626,10 +633,10 @@ class Game_Event < Game_Character
   include ZABS_Character
   attr_reader :battler
   #--------------------------------------------------------------------------
-  # * Overwrite Method - draw_abs_hud?
+  # * Overwrite Method - draw_hud?
   #--------------------------------------------------------------------------
-  def draw_abs_hud?
-    @battler && @battler.alive? && (@battler.hp < @battler.mhp)
+  def draw_hud?
+    @battler && @battler.alive?
   end
   #--------------------------------------------------------------------------
   # * Alias Method - initialize
@@ -723,68 +730,74 @@ class Sprite_Character < Sprite_Base
   alias zabs_sprite_character_update update
   def update
     zabs_sprite_character_update
-    setup_abs_hud unless @hp_bar_sprite
-    update_abs_hud
+    setup_hud
+    update_hud
   end
   #--------------------------------------------------------------------------
   # * Alias Method - dispose
   #--------------------------------------------------------------------------
   alias zabs_sprite_character_dispose dispose
   def dispose
-    dispose_abs_hud
+    dispose_hud
     zabs_sprite_character_dispose
   end
   #--------------------------------------------------------------------------
-  # * New Method - hp_bar_back_color
+  # * New Method - hud_back_color
   #--------------------------------------------------------------------------
-  def hp_bar_back_color
-    return Color.new(0, 0, 0)
+  def hud_back_color
+    return Color.new(*ZABS_Setup::ABS_HUD_BACK_COLOR)
   end
   #--------------------------------------------------------------------------
-  # * New Method - hp_bar_front_color
+  # * New Method - hud_front_color
   #--------------------------------------------------------------------------
-  def hp_bar_front_color
-    params = case 100 * @character.hp_rate
-    when (0...25) then [255, 0, 0]
-    when (25...50) then [255, 128, 0]
-    when (50...75) then [255, 225, 0]
-    else [0, 225, 0]
-    end
-    return Color.new(*params)
+  def hud_front_color
+    data = ZABS_Setup::ABS_HUD_FRONT_COLORS
+    level = (data.keys.max * @character.hp_rate).to_i.next
+    return Color.new(*data[level])
   end
   #--------------------------------------------------------------------------
-  # * New Method - setup_abs_hud
+  # * New Method - setup_hud
   #--------------------------------------------------------------------------
-  def setup_abs_hud
-    @hp_bar_sprite = Sprite.new(viewport)
-    @hp_bar_sprite.bitmap = Bitmap.new(48, 8)
-    @hp_bar_back_color = Color.new(0, 0, 0)
+  def setup_hud
+    return unless @character.draw_hud? && @hud_sprite.nil?
+    @hud_sprite = Sprite.new(viewport)
+    @hud_sprite.bitmap = Bitmap.new(40, 4)
+    @last_hp_rate = @character.hp_rate
   end
   #--------------------------------------------------------------------------
-  # * New Method - dispose_abs_hud
+  # * New Method - dispose_hud
   #--------------------------------------------------------------------------
-  def dispose_abs_hud
-    @hp_bar_sprite.bitmap.clear
-    @hp_bar_sprite.dispose
+  def dispose_hud
+    return unless @hud_sprite
+    @hud_sprite.bitmap.clear
+    @hud_sprite.dispose
   end
   #--------------------------------------------------------------------------
-  # * New Method - update_abs_hud_position
+  # * New Method - update_hud_position
   #--------------------------------------------------------------------------
-  def update_abs_hud_position
-    @hp_bar_sprite.x = x - width / 2 - 4
-    @hp_bar_sprite.y = y - height - 4
-    @hp_bar_sprite.z = z + 200
+  def update_hud_position
+    @hud_sprite.x = x - width / 2 - 4
+    @hud_sprite.y = y - height - 4
+    @hud_sprite.z = z + 200
   end
   #--------------------------------------------------------------------------
-  # * New Method - update_abs_hud
+  # * New Method - update_hud_width
   #--------------------------------------------------------------------------
-  def update_abs_hud
-    @hp_bar_sprite.bitmap.clear
-    return unless @character.draw_abs_hud?
-    update_abs_hud_position
+  def update_hud_width
+    return if @last_hp_rate == (@last_hp_rate = @character.hp_rate)
     width = 38 * @character.hp_rate
-    @hp_bar_sprite.bitmap.fill_rect(0, 0, 40, 4, hp_bar_back_color)
-    @hp_bar_sprite.bitmap.fill_rect(1, 1, width, 2, hp_bar_front_color)
+    @hud_sprite.bitmap.clear
+    @hud_sprite.bitmap.fill_rect(0, 0, 40, 4, hud_back_color)
+    @hud_sprite.bitmap.fill_rect(1, 1, width, 2, hud_front_color)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_hud
+  #--------------------------------------------------------------------------
+  def update_hud
+    return unless @hud_sprite
+    return @hud_sprite.bitmap.clear unless @character.draw_hud?
+    update_hud_position
+    update_hud_width
   end
 end
 
