@@ -43,12 +43,13 @@ module ZABS_Setup
   HIT_COOLDOWN_TIME = 30
   END_TURN_TIME = 120
   DEATH_FADE_RATE = 4
-  ABS_HUD_BACK_COLOR = [0, 0, 0, 255]
-  ABS_HUD_FRONT_COLORS = {
+  HUD_BACK_COLOR = [0, 0, 0, 255]
+  HUD_FRONT_COLORS = {
     1 => [255, 0, 0, 255],
     2 => [255, 128, 0, 255],
     3 => [255, 255, 0, 255],
     4 => [0, 255, 0, 255],
+    5 => [0, 192, 255, 255],
   }
 #----------------------------------------------------------------------------
 # * Advanced Settings
@@ -636,7 +637,7 @@ class Game_Event < Game_Character
   # * Overwrite Method - draw_hud?
   #--------------------------------------------------------------------------
   def draw_hud?
-    @battler && @battler.alive?
+    @battler && @battler.alive? && (@battler.hp < @battler.mhp)
   end
   #--------------------------------------------------------------------------
   # * Alias Method - initialize
@@ -694,6 +695,7 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   def process_death
     eval(@battler.data.death_effect)
+    @item_drop ||= Game_MapItemDrop.spawn(self)
     @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
   end
   #--------------------------------------------------------------------------
@@ -745,14 +747,14 @@ class Sprite_Character < Sprite_Base
   # * New Method - hud_back_color
   #--------------------------------------------------------------------------
   def hud_back_color
-    return Color.new(*ZABS_Setup::ABS_HUD_BACK_COLOR)
+    @hud_back_color ||= Color.new(*ZABS_Setup::HUD_BACK_COLOR)
   end
   #--------------------------------------------------------------------------
   # * New Method - hud_front_color
   #--------------------------------------------------------------------------
   def hud_front_color
-    data = ZABS_Setup::ABS_HUD_FRONT_COLORS
-    level = (data.keys.max * @character.hp_rate).to_i.next
+    data = ZABS_Setup::HUD_FRONT_COLORS
+    level = (data.keys.max * @character.hp_rate).ceil
     return Color.new(*data[level])
   end
   #--------------------------------------------------------------------------
@@ -762,7 +764,6 @@ class Sprite_Character < Sprite_Base
     return unless @character.draw_hud? && @hud_sprite.nil?
     @hud_sprite = Sprite.new(viewport)
     @hud_sprite.bitmap = Bitmap.new(40, 4)
-    @last_hp_rate = @character.hp_rate
   end
   #--------------------------------------------------------------------------
   # * New Method - dispose_hud
@@ -786,7 +787,6 @@ class Sprite_Character < Sprite_Base
   def update_hud_width
     return if @last_hp_rate == (@last_hp_rate = @character.hp_rate)
     width = 38 * @character.hp_rate
-    @hud_sprite.bitmap.clear
     @hud_sprite.bitmap.fill_rect(0, 0, 40, 4, hud_back_color)
     @hud_sprite.bitmap.fill_rect(1, 1, width, 2, hud_front_color)
   end
@@ -1061,5 +1061,57 @@ class Scene_MapItem < Scene_ItemBase
   #--------------------------------------------------------------------------
   def play_se_for_item
     Sound.play_use_item
+  end
+end
+
+#============================================================================
+# ** New Class - Game_MapItemDrop
+#============================================================================
+class Game_MapItemDrop
+  #--------------------------------------------------------------------------
+  # * New Class Method - spawn
+  #--------------------------------------------------------------------------
+  def self.spawn(*args) # TEMP
+    battler_drop = self.new(*args)
+  end
+  #--------------------------------------------------------------------------
+  # * Object Initialization
+  #--------------------------------------------------------------------------
+  def initialize(character)
+    @x, @y = character.x, character.y
+    @battler = character.battler.data
+    @item_drops = random_item_drop
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - exp
+  #--------------------------------------------------------------------------
+  def exp
+    @battler.exp
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - gold
+  #--------------------------------------------------------------------------
+  def gold
+    @battler.gold
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - gold
+  #--------------------------------------------------------------------------
+  def item_object(type, id)
+    arr = case type
+    when 1 then $data_items
+    when 2 then $data_weapons
+    when 3 then $data_armors
+    else []
+    end
+    return arr[id]
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - random_item_drop
+  #--------------------------------------------------------------------------
+  def random_item_drop
+    arr = @battler.drop_items.select {|x| x && rand * x.denominator < 1}
+    arr.map! {|x| item_object(x.kind, x.data_id)}
+    return arr
   end
 end
