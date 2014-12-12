@@ -24,9 +24,10 @@ module ZABS_Setup
     3 => { # Bomb
       character_name: "!Other1",
       character_index: 1,
+      hit_jump: false,
       distance: 10,
+      hit_cooldown: 0,
       initial_effect: %(RPG::SE.new("Earth9", 80).play),
-      hit_effect: %(@hit_cooldown = 0),
       end_effect: %(chain(4, $data_skills[128])),
     },
     4 => { # Explosion
@@ -39,7 +40,6 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
   } # Do not delete this line.
 #----------------------------------------------------------------------------
-  HIT_COOLDOWN_TIME = 30
   END_TURN_TIME = 120
   DEATH_FADE_RATE = 4
   HUD_BACK_COLOR = [0, 0, 0, 255]
@@ -67,6 +67,7 @@ module ZABS_Setup
     distance: 1,
     knockback: 0,
     piercing: 0,
+    hit_cooldown: 30,
     ignore: :user,
     initial_effect: %(),
     update_effect: %(),
@@ -468,7 +469,7 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def apply_projectile(projectile)
     return unless attackable? && battle_tags_match?(projectile)
-    @hit_cooldown = ZABS_Setup::HIT_COOLDOWN_TIME
+    @hit_cooldown = projectile.hit_cooldown
     battler.item_apply(projectile.battler, projectile.item.effect_item)
     battler.result.hit? ? process_hit(projectile) : process_miss
   end
@@ -548,7 +549,7 @@ end
 # ** Reopen Class - Game_Map
 #============================================================================
 class Game_Map
-  attr_reader :projectiles, :projectile_sprite_queue
+  attr_reader :projectiles
   #--------------------------------------------------------------------------
   # * Alias Method - setup
   #--------------------------------------------------------------------------
@@ -688,7 +689,6 @@ class Game_Event < Game_Character
     return if enemy_id.zero?
     @battler = Game_MapEnemy.new(enemy_id)
     @respawn_time = @battler.data.respawn_time
-    @item_drop = nil
   end
   #--------------------------------------------------------------------------
   # * New Method - enemy_id
@@ -714,7 +714,6 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   def process_death
     eval(@battler.data.death_effect)
-    @item_drop ||= Game_MapItemDrop.spawn(self)
     @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
   end
   #--------------------------------------------------------------------------
@@ -885,7 +884,7 @@ end
 #============================================================================
 # ** Reopen Class - Scene_Map
 #============================================================================
-class Scene_Map
+class Scene_Map < Scene_Base
   #--------------------------------------------------------------------------
   # * Alias Method - update
   #--------------------------------------------------------------------------
@@ -965,7 +964,7 @@ class Game_Projectile < Game_Character
   include ZABS_Entity
   attr_accessor :piercing, :need_sprite, :need_dispose
   attr_reader :type, :battler, :item, :hit_jump, :reflective, :knockback
-  attr_reader :size, :hit_effect, :collide_effect
+  attr_reader :size, :hit_cooldown, :hit_effect, :collide_effect
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
@@ -1005,7 +1004,7 @@ class Game_Projectile < Game_Character
   # * New Method - stopping?
   #--------------------------------------------------------------------------
   def stopping?
-    @distance.zero?
+    @distance.zero? && !moving?
   end
   #--------------------------------------------------------------------------
   # * New Method - data
@@ -1026,7 +1025,9 @@ class Game_Projectile < Game_Character
   # * New Method - chain
   #--------------------------------------------------------------------------
   def chain(type, item)
-    Game_Projectile.spawn(@character, type, item).moveto(@x, @y)
+    projectile = self.class.spawn(@character, type, item)
+    projectile.moveto(@x, @y)
+    projectile.set_direction(@direction)
   end
   #--------------------------------------------------------------------------
   # * New Method - apply_projectile
@@ -1034,21 +1035,19 @@ class Game_Projectile < Game_Character
   def apply_projectile(projectile)
     return unless @allow_collision
     eval(projectile.collide_effect)
-    process_reflection(projectile)
+    process_reflection(projectile) if projectile.reflective
   end
   #--------------------------------------------------------------------------
   # * New Method - process_reflection
   #--------------------------------------------------------------------------
   def process_reflection(projectile)
-    return unless projectile.reflective && @battler != projectile.battler
-    @battler = projectile.battler
-    turn_180
+    turn_180 unless @battler == (@battler = projectile.battler)
   end
   #--------------------------------------------------------------------------
   # * New Method - move_projectile
   #--------------------------------------------------------------------------
   def move_projectile
-    return if stopping? || moving?
+    return if @distance.zero? || moving?
     move_forward
     @distance -= 1
   end
@@ -1109,59 +1108,5 @@ class Scene_MapItem < Scene_ItemBase
   #--------------------------------------------------------------------------
   def play_se_for_item
     Sound.play_use_item
-  end
-end
-
-#============================================================================
-# ** New Class - Game_MapItemDrop
-#============================================================================
-class Game_MapItemDrop
-  attr_accessor :need_sprite
-  attr_reader :item_drops, :need_dispose
-  #--------------------------------------------------------------------------
-  # * New Class Method - spawn
-  #--------------------------------------------------------------------------
-  def self.spawn(*args) # TEMP
-    map_item_drop = self.new(*args)
-  end
-  #--------------------------------------------------------------------------
-  # * Object Initialization
-  #--------------------------------------------------------------------------
-  def initialize(character)
-    @x, @y = character.x, character.y
-    @battler_data = character.battler.data
-    @item_drops = random_item_drops
-    @need_sprite = true
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - exp
-  #--------------------------------------------------------------------------
-  def exp
-    @battler_data.exp
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - gold
-  #--------------------------------------------------------------------------
-  def gold
-    @battler_data.gold
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - item_object
-  #--------------------------------------------------------------------------
-  def item_object(type, id)
-    arr = case type
-    when 1 then $data_items
-    when 2 then $data_weapons
-    when 3 then $data_armors
-    else []
-    end
-    return arr[id]
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - random_item_drops
-  #--------------------------------------------------------------------------
-  def random_item_drops
-    arr = @battler_data.drop_items.select {|x| rand * x.denominator < 1}
-    arr.map {|x| item_object(x.kind, x.data_id)}.compact
   end
 end
