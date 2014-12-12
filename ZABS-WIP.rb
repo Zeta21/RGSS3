@@ -5,7 +5,7 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
   PROJECTILES = { # Do not delete this line.
 #----------------------------------------------------------------------------
-    1 => {
+    1 => { # Boulder
       character_name: "!Other1",
       distance: 10,
       knockback: 1,
@@ -13,7 +13,7 @@ module ZABS_Setup
       initial_effect: %(RPG::SE.new("Earth9", 80).play; jump(0, 0)),
       hit_effect: %(@animation_id = 111),
     },
-    2 => {
+    2 => { # Arrow
       character_name: "$Arrow",
       move_speed: 6,
       distance: 10,
@@ -21,14 +21,48 @@ module ZABS_Setup
       initial_effect: %(RPG::SE.new("Bow2", 80).play),
       hit_effect: %(@animation_id = 111),
     },
+    3 => { # Bomb
+      character_name: "!Other1",
+      character_index: 1,
+      distance: 10,
+      initial_effect: %(RPG::SE.new("Earth9", 80).play),
+      hit_effect: %(@hit_cooldown = 0),
+      end_effect: %(chain(4, $data_skills[128])),
+    },
+    4 => { # Explosion
+      allow_collision: false,
+      size: 4,
+      distance: 0,
+      ignore: :none,
+      initial_effect: %(@animation_id = 113),
+    },
 #----------------------------------------------------------------------------
   } # Do not delete this line.
+#----------------------------------------------------------------------------
+  HIT_COOLDOWN_TIME = 30
+  END_TURN_TIME = 120
+  DEATH_FADE_RATE = 4
+  HUD_BACK_COLOR = [0, 0, 0, 255]
+#----------------------------------------------------------------------------
+  HUD_FRONT_COLORS = { # Do not delete this line.
+#----------------------------------------------------------------------------
+    1 => [255, 0, 0, 255],
+    2 => [255, 128, 0, 255],
+    3 => [255, 255, 0, 255],
+    4 => [0, 255, 0, 255],
+    5 => [0, 192, 255, 255],
+#----------------------------------------------------------------------------
+  } # Do not delete this line.
+#----------------------------------------------------------------------------
+#----------------------------------------------------------------------------
+# * Advanced Settings
 #----------------------------------------------------------------------------
   PROJECTILE_DEFAULT = {
     move_speed: 5,
     hit_jump: true,
     battler_through: true,
     allow_collision: true,
+    reflective: false,
     size: 1,
     distance: 1,
     knockback: 0,
@@ -40,20 +74,6 @@ module ZABS_Setup
     hit_effect: %(),
     end_effect: %(),
   }
-  HIT_COOLDOWN_TIME = 30
-  END_TURN_TIME = 120
-  DEATH_FADE_RATE = 4
-  HUD_BACK_COLOR = [0, 0, 0, 255]
-  HUD_FRONT_COLORS = {
-    1 => [255, 0, 0, 255],
-    2 => [255, 128, 0, 255],
-    3 => [255, 255, 0, 255],
-    4 => [0, 255, 0, 255],
-    5 => [0, 192, 255, 255],
-  }
-#----------------------------------------------------------------------------
-# * Advanced Settings
-#----------------------------------------------------------------------------
   SELF_ITEM_USAGE = true
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
   EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
@@ -467,7 +487,7 @@ module ZABS_Character
   def process_miss
     if battler.result.missed
       eval(ZABS_Setup::MISS_EFFECT)
-    else
+    elsif battler.result.evaded
       eval(ZABS_Setup::EVADE_EFFECT)
       jump(0, 0) if battler.data.evade_jump?
     end
@@ -536,7 +556,6 @@ class Game_Map
   def setup(map_id)
     zabs_map_setup(map_id)
     @projectiles = []
-    @projectile_sprite_queue = []
   end
   #--------------------------------------------------------------------------
   # * Alias Method - update
@@ -564,7 +583,6 @@ class Game_Map
   #--------------------------------------------------------------------------
   def add_projectile(projectile)
     @projectiles.push(projectile)
-    @projectile_sprite_queue.push(projectile)
   end
   #--------------------------------------------------------------------------
   # * New Method - update_projectiles
@@ -670,6 +688,7 @@ class Game_Event < Game_Character
     return if enemy_id.zero?
     @battler = Game_MapEnemy.new(enemy_id)
     @respawn_time = @battler.data.respawn_time
+    @item_drop = nil
   end
   #--------------------------------------------------------------------------
   # * New Method - enemy_id
@@ -744,6 +763,18 @@ class Sprite_Character < Sprite_Base
     zabs_sprite_character_dispose
   end
   #--------------------------------------------------------------------------
+  # * New Method - hud_width
+  #--------------------------------------------------------------------------
+  def hud_width
+    width + 8
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - hud_bar_width
+  #--------------------------------------------------------------------------
+  def hud_bar_width
+    (width + 6) * @character.hp_rate
+  end
+  #--------------------------------------------------------------------------
   # * New Method - hud_back_color
   #--------------------------------------------------------------------------
   def hud_back_color
@@ -763,7 +794,7 @@ class Sprite_Character < Sprite_Base
   def setup_hud
     return unless @character.draw_hud? && @hud_sprite.nil?
     @hud_sprite = Sprite.new(viewport)
-    @hud_sprite.bitmap = Bitmap.new(40, 4)
+    @hud_sprite.bitmap = Bitmap.new(hud_width, 4)
   end
   #--------------------------------------------------------------------------
   # * New Method - dispose_hud
@@ -782,13 +813,12 @@ class Sprite_Character < Sprite_Base
     @hud_sprite.z = z + 200
   end
   #--------------------------------------------------------------------------
-  # * New Method - update_hud_width
+  # * New Method - update_hud_bar_width
   #--------------------------------------------------------------------------
-  def update_hud_width
+  def update_hud_bar_width
     return if @last_hp_rate == (@last_hp_rate = @character.hp_rate)
-    width = 38 * @character.hp_rate
-    @hud_sprite.bitmap.fill_rect(0, 0, 40, 4, hud_back_color)
-    @hud_sprite.bitmap.fill_rect(1, 1, width, 2, hud_front_color)
+    @hud_sprite.bitmap.fill_rect(0, 0, hud_width, 4, hud_back_color)
+    @hud_sprite.bitmap.fill_rect(1, 1, hud_bar_width, 2, hud_front_color)
   end
   #--------------------------------------------------------------------------
   # * New Method - update_hud
@@ -797,7 +827,7 @@ class Sprite_Character < Sprite_Base
     return unless @hud_sprite
     return @hud_sprite.bitmap.clear unless @character.draw_hud?
     update_hud_position
-    update_hud_width
+    update_hud_bar_width
   end
 end
 
@@ -820,7 +850,7 @@ class Spriteset_Map
   def update_characters
     zabs_spriteset_map_update_characters
     dispose_projectiles
-    update_projectile_queue
+    update_projectiles
   end
   #--------------------------------------------------------------------------
   # * New Method - create_projectiles
@@ -831,20 +861,21 @@ class Spriteset_Map
     end
   end
   #--------------------------------------------------------------------------
-  # * New Method - update_projectile_queue
+  # * New Method - update_projectiles
   #--------------------------------------------------------------------------
-  def update_projectile_queue
-    $game_map.projectile_sprite_queue.each do |x|
+  def update_projectiles
+    $game_map.projectiles.select(&:need_sprite).each do |x|
       @character_sprites.push(Sprite_Character.new(@viewport1, x))
+      x.need_sprite = false
     end
-    $game_map.projectile_sprite_queue.clear
   end
   #--------------------------------------------------------------------------
   # * New Method - dispose_projectiles
   #--------------------------------------------------------------------------
   def dispose_projectiles
     sprites = @character_sprites.select do |x|
-      x.character.is_a?(Game_Projectile) && x.character.need_dispose
+      next unless x.character.is_a?(Game_Projectile)
+      x.character.need_dispose && !x.animation?
     end
     sprites.each(&:dispose)
     @character_sprites.reject!(&:disposed?)
@@ -932,9 +963,9 @@ end
 #============================================================================
 class Game_Projectile < Game_Character
   include ZABS_Entity
-  attr_accessor :piercing, :need_dispose
-  attr_reader :type, :battler, :item, :hit_jump, :knockback, :size
-  attr_reader :hit_effect, :collide_effect
+  attr_accessor :piercing, :need_sprite, :need_dispose
+  attr_reader :type, :battler, :item, :hit_jump, :reflective, :knockback
+  attr_reader :size, :hit_effect, :collide_effect
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
@@ -968,6 +999,7 @@ class Game_Projectile < Game_Character
     attrs = ZABS_Setup::PROJECTILE_DEFAULT.merge(data)
     attrs.each {|k, v| instance_variable_set("@#{k}", v)}
     @ignore = (@ignore.to_s + "?").intern
+    @need_sprite = true
   end
   #--------------------------------------------------------------------------
   # * New Method - stopping?
@@ -991,11 +1023,26 @@ class Game_Projectile < Game_Character
     return arr
   end
   #--------------------------------------------------------------------------
+  # * New Method - chain
+  #--------------------------------------------------------------------------
+  def chain(type, item)
+    Game_Projectile.spawn(@character, type, item).moveto(@x, @y)
+  end
+  #--------------------------------------------------------------------------
   # * New Method - apply_projectile
   #--------------------------------------------------------------------------
   def apply_projectile(projectile)
     return unless @allow_collision
     eval(projectile.collide_effect)
+    process_reflection(projectile)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_reflection
+  #--------------------------------------------------------------------------
+  def process_reflection(projectile)
+    return unless projectile.reflective && @battler != projectile.battler
+    @battler = projectile.battler
+    turn_180
   end
   #--------------------------------------------------------------------------
   # * New Method - move_projectile
@@ -1019,6 +1066,7 @@ class Game_Projectile < Game_Character
     return unless @piercing < 0 || stopping?
     eval(@end_effect)
     @need_dispose = true
+    @transparent = true
   end
   #--------------------------------------------------------------------------
   # * Frame Update
@@ -1068,34 +1116,37 @@ end
 # ** New Class - Game_MapItemDrop
 #============================================================================
 class Game_MapItemDrop
+  attr_accessor :need_sprite
+  attr_reader :item_drops, :need_dispose
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
   def self.spawn(*args) # TEMP
-    battler_drop = self.new(*args)
+    map_item_drop = self.new(*args)
   end
   #--------------------------------------------------------------------------
   # * Object Initialization
   #--------------------------------------------------------------------------
   def initialize(character)
     @x, @y = character.x, character.y
-    @battler = character.battler.data
-    @item_drops = random_item_drop
+    @battler_data = character.battler.data
+    @item_drops = random_item_drops
+    @need_sprite = true
   end
   #--------------------------------------------------------------------------
   # * New Method - exp
   #--------------------------------------------------------------------------
   def exp
-    @battler.exp
+    @battler_data.exp
   end
   #--------------------------------------------------------------------------
   # * New Method - gold
   #--------------------------------------------------------------------------
   def gold
-    @battler.gold
+    @battler_data.gold
   end
   #--------------------------------------------------------------------------
-  # * New Method - gold
+  # * New Method - item_object
   #--------------------------------------------------------------------------
   def item_object(type, id)
     arr = case type
@@ -1107,11 +1158,10 @@ class Game_MapItemDrop
     return arr[id]
   end
   #--------------------------------------------------------------------------
-  # * New Method - random_item_drop
+  # * New Method - random_item_drops
   #--------------------------------------------------------------------------
-  def random_item_drop
-    arr = @battler.drop_items.select {|x| x && rand * x.denominator < 1}
-    arr.map! {|x| item_object(x.kind, x.data_id)}
-    return arr
+  def random_item_drops
+    arr = @battler_data.drop_items.select {|x| rand * x.denominator < 1}
+    arr.map {|x| item_object(x.kind, x.data_id)}.compact
   end
 end
