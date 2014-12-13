@@ -83,12 +83,13 @@ module ZABS_Setup
 # * Regular Expressions
 #----------------------------------------------------------------------------
   BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
-  PROJECTILE_REGEX = /<projectile:\s*(\d+)/i
-  COOLDOWN_REGEX = /<cooldown:\s*(\d+)/i
+  PROJECTILE_REGEX = /<projectile:\s*(\d+)>/i
+  COOLDOWN_REGEX = /<cooldown:\s*(\d+)>/i
   EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
   IMMOVABLE_REGEX = /<immovable>/i
   EVADE_JUMP_REGEX = /<evade[ _]jump>/i
-  SIZE_REGEX = /<size:\s*(\d+)/i
+  SIZE_REGEX = /<size:\s*(\d+)>/i
+  DEATH_SWITCH_REGEX = /<death_switch:\s*(\d+|[a-d])\s+(true|false)>/i
   HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
   DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
   RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
@@ -119,16 +120,7 @@ module ZABS_Input
   @key_states = {}
   @key_map.each_key {|x| @key_states.store(x, 0)}
   #--------------------------------------------------------------------------
-  # * New Class Method - update
-  #--------------------------------------------------------------------------
-  def self.update
-    @key_map.each do |k, v|
-      state = GetKeyState.call(v) >> 8
-      state.zero? ? @key_states[k] = 0 : @key_states[k] += 1
-    end
-  end
-  #--------------------------------------------------------------------------
-  # * New Class Method - pressed?
+  # * New Class Method - press?
   #--------------------------------------------------------------------------
   def self.press?(key)
     @key_states[key] > 0
@@ -138,6 +130,15 @@ module ZABS_Input
   #--------------------------------------------------------------------------
   def self.trigger?(key)
     @key_states[key].between?(1, 2)
+  end
+  #--------------------------------------------------------------------------
+  # * New Class Method - update
+  #--------------------------------------------------------------------------
+  def self.update
+    @key_map.each do |k, v|
+      state = GetKeyState.call(v) >> 8
+      state.zero? ? @key_states[k] = 0 : @key_states[k] += 1
+    end
   end
 end
 
@@ -275,6 +276,12 @@ end
 #============================================================================
 class RPG::Enemy < RPG::BaseItem
   include ZABS_Attackable
+  #--------------------------------------------------------------------------
+  # * New Method - death_switches
+  #--------------------------------------------------------------------------
+  def death_switches
+    @death_switches ||= @note.scan(ZABS_Setup::DEATH_SWITCH_REGEX).to_a
+  end
   #--------------------------------------------------------------------------
   # * New Method - respawn_time
   #--------------------------------------------------------------------------
@@ -710,11 +717,27 @@ class Game_Event < Game_Character
     eval(@battler.data.respawn_effect)
   end
   #--------------------------------------------------------------------------
+  # * New Method - control_self_switch
+  #--------------------------------------------------------------------------
+  def control_self_switch(key, value)
+    $game_self_switches[[@map_id, @event_id, key]] = value
+  end
+  #--------------------------------------------------------------------------
   # * New Method - process_death
   #--------------------------------------------------------------------------
   def process_death
     eval(@battler.data.death_effect)
+    process_death_switches
     @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_death_switches
+  #--------------------------------------------------------------------------
+  def process_death_switches
+    @battler.data.death_switches.each do |x|
+      k, v = x.first, eval(x.last)
+      k.to_i.zero? ? control_self_switch(k, v) : $game_switches[k.to_i] = v
+    end
   end
   #--------------------------------------------------------------------------
   # * New Method - process_respawn
