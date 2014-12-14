@@ -18,12 +18,13 @@ module ZABS_Setup
       move_speed: 6,
       distance: 10,
       knockback: 1,
+      ignore: :ally,
       initial_effect: %(RPG::SE.new("Bow2", 80).play),
       hit_effect: %(@animation_id = 111),
     },
     3 => { # Bomb
       character_name: "!Other1",
-      character_index: 1,
+      character_index: 3,
       hit_jump: false,
       distance: 10,
       hit_cooldown: 0,
@@ -88,8 +89,8 @@ module ZABS_Setup
   EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
   IMMOVABLE_REGEX = /<immovable>/i
   EVADE_JUMP_REGEX = /<evade[ _]jump>/i
+  KEEP_CORPSE_REGEX = /<keep[ _]corpse>/i
   SIZE_REGEX = /<size:\s*(\d+)>/i
-  DEATH_SWITCH_REGEX = /<death_switch:\s*(\d+|[a-d])\s+(true|false)>/i
   HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
   DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
   RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
@@ -195,6 +196,12 @@ module ZABS_Attackable
     @evade_jump ||= @note =~ ZABS_Setup::EVADE_JUMP_REGEX
   end
   #--------------------------------------------------------------------------
+  # * New Method - keep_corpse?
+  #--------------------------------------------------------------------------
+  def keep_corpse?
+    @keep_corpse ||= @note =~ ZABS_Setup::KEEP_CORPSE_REGEX
+  end
+  #--------------------------------------------------------------------------
   # * New Method - size
   #--------------------------------------------------------------------------
   def size
@@ -276,12 +283,6 @@ end
 #============================================================================
 class RPG::Enemy < RPG::BaseItem
   include ZABS_Attackable
-  #--------------------------------------------------------------------------
-  # * New Method - death_switches
-  #--------------------------------------------------------------------------
-  def death_switches
-    @death_switches ||= @note.scan(ZABS_Setup::DEATH_SWITCH_REGEX).to_a
-  end
   #--------------------------------------------------------------------------
   # * New Method - respawn_time
   #--------------------------------------------------------------------------
@@ -386,7 +387,31 @@ module ZABS_Entity
   # * New Method - enemies
   #--------------------------------------------------------------------------
   def enemies
-    $game_map.entities.reject {|x| enemy?(x)}
+    $game_map.entities.select {|x| enemy?(x)}
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - ally_target
+  #--------------------------------------------------------------------------
+  def ally_target
+    return @ally if @ally && @ally.battler.alive?
+    allies = $game_map.battlers.select {|x| ally?(x) && x.battler.alive?}
+    @ally = allies.sample
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - friend_target
+  #--------------------------------------------------------------------------
+  def friend_target
+    return @friend if @friend && @friend.battler.alive?
+    friends = $game_map.battlers.select {|x| friend?(x) && x.battler.alive?}
+    @friend = friends.sample
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - enemy_target
+  #--------------------------------------------------------------------------
+  def enemy_target
+    return @enemy if @enemy && @enemy.battler.alive?
+    enemies = $game_map.battlers.select {|x| enemy?(x) && x.battler.alive?}
+    (@enemy = enemies.sample) || self
   end
 end
 
@@ -575,10 +600,16 @@ class Game_Map
     $game_party.members.each(&:update)
   end
   #--------------------------------------------------------------------------
+  # * New Method - battlers
+  #--------------------------------------------------------------------------
+  def battlers
+    @events.values.select(&:battler).push($game_player)
+  end
+  #--------------------------------------------------------------------------
   # * New Method - entities
   #--------------------------------------------------------------------------
   def entities
-    @events.values.select(&:battler).concat(@projectiles).push($game_player)
+    battlers.concat(@projectiles)
   end
   #--------------------------------------------------------------------------
   # * New Method - entities_xyd
@@ -694,6 +725,7 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   def initialize_battler
     return if enemy_id.zero?
+    @dead = false
     @battler = Game_MapEnemy.new(enemy_id)
     @respawn_time = @battler.data.respawn_time
   end
@@ -710,6 +742,13 @@ class Game_Event < Game_Character
     @battler.hp.to_f / @battler.mhp
   end
   #--------------------------------------------------------------------------
+  # * New Method - kill
+  #--------------------------------------------------------------------------
+  def kill
+    @dead = true
+    erase
+  end
+  #--------------------------------------------------------------------------
   # * New Method - respawn
   #--------------------------------------------------------------------------
   def respawn
@@ -720,24 +759,15 @@ class Game_Event < Game_Character
   # * New Method - control_self_switch
   #--------------------------------------------------------------------------
   def control_self_switch(key, value)
-    $game_self_switches[[@map_id, @event_id, key]] = value
+    $game_self_switches[[@map_id, @id, key]] = value
   end
   #--------------------------------------------------------------------------
   # * New Method - process_death
   #--------------------------------------------------------------------------
   def process_death
     eval(@battler.data.death_effect)
-    process_death_switches
-    @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : erase
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - process_death_switches
-  #--------------------------------------------------------------------------
-  def process_death_switches
-    @battler.data.death_switches.each do |x|
-      k, v = x.first, eval(x.last)
-      k.to_i.zero? ? control_self_switch(k, v) : $game_switches[k.to_i] = v
-    end
+    return (@dead = true) if @battler.data.keep_corpse?
+    @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : kill
   end
   #--------------------------------------------------------------------------
   # * New Method - process_respawn
@@ -751,7 +781,7 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   def update_death
     return if @battler.alive?
-    @erased ? process_respawn : process_death
+    @dead ? process_respawn : process_death
   end
   #--------------------------------------------------------------------------
   # * New Method - update_battler
@@ -814,7 +844,7 @@ class Sprite_Character < Sprite_Base
   # * New Method - setup_hud
   #--------------------------------------------------------------------------
   def setup_hud
-    return unless @character.draw_hud? && @hud_sprite.nil?
+    return if @hud_sprite
     @hud_sprite = Sprite.new(viewport)
     @hud_sprite.bitmap = Bitmap.new(hud_width, 4)
   end
@@ -822,7 +852,6 @@ class Sprite_Character < Sprite_Base
   # * New Method - dispose_hud
   #--------------------------------------------------------------------------
   def dispose_hud
-    return unless @hud_sprite
     @hud_sprite.bitmap.clear
     @hud_sprite.dispose
   end
@@ -837,6 +866,14 @@ class Sprite_Character < Sprite_Base
   #--------------------------------------------------------------------------
   # * New Method - update_hud_bar_width
   #--------------------------------------------------------------------------
+  def update_hud_width
+    return if @hud_sprite.bitmap.width == hud_width
+    @hud_sprite.bitmap.dispose
+    @hud_sprite.bitmap = Bitmap.new(hud_width, 4)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_hud_bar_width
+  #--------------------------------------------------------------------------
   def update_hud_bar_width
     return if @last_hp_rate == (@last_hp_rate = @character.hp_rate)
     @hud_sprite.bitmap.fill_rect(0, 0, hud_width, 4, hud_back_color)
@@ -846,9 +883,9 @@ class Sprite_Character < Sprite_Base
   # * New Method - update_hud
   #--------------------------------------------------------------------------
   def update_hud
-    return unless @hud_sprite
-    return @hud_sprite.bitmap.clear unless @character.draw_hud?
+    return (@hud_sprite.bitmap.clear) unless @character.draw_hud?
     update_hud_position
+    update_hud_width
     update_hud_bar_width
   end
 end
@@ -994,7 +1031,7 @@ class Game_Projectile < Game_Character
   def self.spawn(*args)
     projectile = self.new(*args)
     $game_map.add_projectile(projectile)
-    return projectile
+    yield projectile if block_given?
   end
   #--------------------------------------------------------------------------
   # * Object Initialization
@@ -1048,9 +1085,10 @@ class Game_Projectile < Game_Character
   # * New Method - chain
   #--------------------------------------------------------------------------
   def chain(type, item)
-    projectile = self.class.spawn(@character, type, item)
-    projectile.moveto(@x, @y)
-    projectile.set_direction(@direction)
+    self.class.spawn(@character, type, item) do |x|
+      x.moveto(@x, @y)
+      x.set_direction(@direction)
+    end
   end
   #--------------------------------------------------------------------------
   # * New Method - apply_projectile
