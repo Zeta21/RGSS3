@@ -10,17 +10,17 @@ module ZABS_Setup
       distance: 10,
       knockback: 1,
       piercing: 5,
-      initial_effect: %(RPG::SE.new("Earth9", 80).play; jump(0, 0)),
-      hit_effect: %(@animation_id = 111),
+      initial_effect: %{RPG::SE.new("Earth9", 80).play; jump(0, 0)},
+      hit_effect: %{@animation_id = 1},
     },
     2 => { # Arrow
       character_name: "$Arrow",
       move_speed: 6,
       distance: 10,
       knockback: 1,
-      ignore: :ally,
-      initial_effect: %(RPG::SE.new("Bow2", 80).play),
-      hit_effect: %(@animation_id = 111),
+      ignore: :friend,
+      initial_effect: %{RPG::SE.new("Bow2", 80).play},
+      hit_effect: %{@animation_id = 1},
     },
     3 => { # Bomb
       character_name: "!Other1",
@@ -28,15 +28,15 @@ module ZABS_Setup
       hit_jump: false,
       distance: 10,
       hit_cooldown: 0,
-      initial_effect: %(RPG::SE.new("Earth9", 80).play),
-      end_effect: %(chain(4, $data_skills[128])),
+      initial_effect: %{RPG::SE.new("Earth9", 80).play},
+      end_effect: %{chain(4, $data_skills[128])},
     },
     4 => { # Explosion
       allow_collision: false,
       size: 4,
       distance: 0,
       ignore: :none,
-      initial_effect: %(@animation_id = 113),
+      initial_effect: %{@animation_id = 3},
     },
 #----------------------------------------------------------------------------
   } # Do not delete this line.
@@ -654,8 +654,7 @@ class Game_Player < Game_Character
   # * Overwrite Method - item_map_usable?
   #--------------------------------------------------------------------------
   def item_map_usable?(item)
-    return true if item.is_a?(RPG::UsableItem) && item.for_allies?
-    return super
+    item.is_a?(RPG::UsableItem) && item.for_allies? ? true : super
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - process_normal_item
@@ -742,13 +741,6 @@ class Game_Event < Game_Character
     @battler.hp.to_f / @battler.mhp
   end
   #--------------------------------------------------------------------------
-  # * New Method - kill
-  #--------------------------------------------------------------------------
-  def kill
-    @dead = true
-    erase
-  end
-  #--------------------------------------------------------------------------
   # * New Method - respawn
   #--------------------------------------------------------------------------
   def respawn
@@ -767,7 +759,9 @@ class Game_Event < Game_Character
   def process_death
     eval(@battler.data.death_effect)
     return (@dead = true) if @battler.data.keep_corpse?
-    @opacity > 0 ? @opacity -= ZABS_Setup::DEATH_FADE_RATE : kill
+    return (@opacity -= ZABS_Setup::DEATH_FADE_RATE) if @opacity > 0
+    @dead = true
+    erase
   end
   #--------------------------------------------------------------------------
   # * New Method - process_respawn
@@ -797,6 +791,13 @@ end
 # ** Reopen Class - Sprite_Character
 #============================================================================
 class Sprite_Character < Sprite_Base
+  #--------------------------------------------------------------------------
+  # * Initial Setup - hud_front_colors
+  #--------------------------------------------------------------------------
+  @@hud_front_colors = {}
+  ZABS_Setup::HUD_FRONT_COLORS.each do |k, v|
+    @@hud_front_colors.store(k, Color.new(*v))
+  end
   #--------------------------------------------------------------------------
   # * Alias Method - update
   #--------------------------------------------------------------------------
@@ -836,9 +837,8 @@ class Sprite_Character < Sprite_Base
   # * New Method - hud_front_color
   #--------------------------------------------------------------------------
   def hud_front_color
-    data = ZABS_Setup::HUD_FRONT_COLORS
-    level = (data.keys.max * @character.hp_rate).ceil
-    return Color.new(*data[level])
+    level = (@@hud_front_colors.keys.max * @character.hp_rate).ceil
+    @@hud_front_colors[level]
   end
   #--------------------------------------------------------------------------
   # * New Method - setup_hud
@@ -870,6 +870,7 @@ class Sprite_Character < Sprite_Base
     return if @hud_sprite.bitmap.width == hud_width
     @hud_sprite.bitmap.dispose
     @hud_sprite.bitmap = Bitmap.new(hud_width, 4)
+    @last_hp_rate = nil
   end
   #--------------------------------------------------------------------------
   # * New Method - update_hud_bar_width
@@ -923,9 +924,9 @@ class Spriteset_Map
   # * New Method - update_projectiles
   #--------------------------------------------------------------------------
   def update_projectiles
-    $game_map.projectiles.select(&:need_sprite).each do |x|
+    $game_map.projectiles.reject(&:sprite_drawn).each do |x|
       @character_sprites.push(Sprite_Character.new(@viewport1, x))
-      x.need_sprite = false
+      x.sprite_drawn = true
     end
   end
   #--------------------------------------------------------------------------
@@ -1022,7 +1023,7 @@ end
 #============================================================================
 class Game_Projectile < Game_Character
   include ZABS_Entity
-  attr_accessor :piercing, :need_sprite, :need_dispose
+  attr_accessor :piercing, :sprite_drawn, :need_dispose
   attr_reader :type, :battler, :item, :hit_jump, :reflective, :knockback
   attr_reader :size, :hit_cooldown, :hit_effect, :collide_effect
   #--------------------------------------------------------------------------
@@ -1058,7 +1059,6 @@ class Game_Projectile < Game_Character
     attrs = ZABS_Setup::PROJECTILE_DEFAULT.merge(data)
     attrs.each {|k, v| instance_variable_set("@#{k}", v)}
     @ignore = (@ignore.to_s + "?").intern
-    @need_sprite = true
   end
   #--------------------------------------------------------------------------
   # * New Method - stopping?
@@ -1088,6 +1088,7 @@ class Game_Projectile < Game_Character
     self.class.spawn(@character, type, item) do |x|
       x.moveto(@x, @y)
       x.set_direction(@direction)
+      yield x if block_given?
     end
   end
   #--------------------------------------------------------------------------
@@ -1109,8 +1110,8 @@ class Game_Projectile < Game_Character
   #--------------------------------------------------------------------------
   def move_projectile
     return if @distance.zero? || moving?
-    move_forward
     @distance -= 1
+    move_forward
   end
   #--------------------------------------------------------------------------
   # * New Method - update_effects
