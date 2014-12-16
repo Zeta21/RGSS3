@@ -18,7 +18,6 @@ module ZABS_Setup
       move_speed: 6,
       distance: 10,
       knockback: 1,
-      ignore: :friend,
       initial_effect: %{RPG::SE.new("Bow2", 80).play},
       hit_effect: %{@animation_id = 1},
     },
@@ -70,11 +69,11 @@ module ZABS_Setup
     piercing: 0,
     hit_cooldown: 30,
     ignore: :user,
-    initial_effect: %(),
-    update_effect: %(),
-    collide_effect: %(),
-    hit_effect: %(),
-    end_effect: %(),
+    initial_effect: %{},
+    update_effect: %{},
+    collide_effect: %{},
+    hit_effect: %{},
+    end_effect: %{},
   }
   SELF_ITEM_USAGE = true
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
@@ -86,6 +85,9 @@ module ZABS_Setup
   BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
   PROJECTILE_REGEX = /<projectile:\s*(\d+)>/i
   COOLDOWN_REGEX = /<cooldown:\s*(\d+)>/i
+  GRAPHIC_NAME_REGEX = /<graphic[ _]name:\s*(.*)>/i
+  GRAPHIC_INDEX_REGEX = /<graphic[ _]index:\s*(\d+)>/i
+  ACTING_TIME_REGEX = /<acting[ _]time:\s*(\d+)/i
   EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
   IMMOVABLE_REGEX = /<immovable>/i
   EVADE_JUMP_REGEX = /<evade[ _]jump>/i
@@ -168,6 +170,26 @@ module ZABS_Usable
     @cooldown ||= @note[ZABS_Setup::COOLDOWN_REGEX, 1].to_i
   end
   #--------------------------------------------------------------------------
+  # * New Method - graphic_name
+  #--------------------------------------------------------------------------
+  def graphic_name
+    @graphic_name ||= @note[ZABS_Setup::GRAPHIC_NAME_REGEX, 1].to_s
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - graphic_index
+  #--------------------------------------------------------------------------
+  def graphic_index
+    @graphic_index ||= @note[ZABS_Setup::GRAPHIC_INDEX_REGEX, 1].to_i
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - acting_time
+  #--------------------------------------------------------------------------
+  def acting_time
+    return @acting_time if @acting_time
+    match = @note[ZABS_Setup::ACTING_TIME_REGEX, 1].to_i
+    @acting_time = [match, 3].max
+  end
+  #--------------------------------------------------------------------------
   # * New Method - effect_item
   #--------------------------------------------------------------------------
   def effect_item
@@ -207,7 +229,7 @@ module ZABS_Attackable
   def size
     return @size if @size
     match = @note[ZABS_Setup::SIZE_REGEX, 1].to_i
-    @size = match > 0 ? match : 1
+    @size = [match, 1].max
   end
   #--------------------------------------------------------------------------
   # * New Method - hit_effect
@@ -336,7 +358,7 @@ module ZABS_Battler
   #--------------------------------------------------------------------------
   def update
     update_item_cooldown
-    return (@end_turn_time -= 1) unless @end_turn_time.zero?
+    return unless (@end_turn_time -= 1).zero?
     @end_turn_time = ZABS_Setup::END_TURN_TIME
     on_turn_end
     refresh
@@ -420,12 +442,14 @@ end
 #============================================================================
 module ZABS_Character
   include ZABS_Entity
+  attr_reader :map_item
   #--------------------------------------------------------------------------
   # * Object Initialization
   #--------------------------------------------------------------------------
   def initialize(*args)
     super
     @hit_cooldown = 0
+    @map_item = Game_MapItem.new(self)
   end
   #--------------------------------------------------------------------------
   # * New Method - attackable?
@@ -482,6 +506,7 @@ module ZABS_Character
   def process_map_item(item)
     return unless item_map_usable?(item)
     if item.abs_item?
+      @map_item.set_item(item)
       Game_Projectile.spawn(self, item.projectile, item)
       battler.use_item(item)
     else
@@ -546,6 +571,7 @@ module ZABS_Character
   def update
     super
     update_hit_cooldown
+    @map_item.update
   end
 end
 
@@ -559,8 +585,7 @@ class Game_Actor < Game_Battler
   # * Overwrite Method - usable?
   #--------------------------------------------------------------------------
   def usable?(item)
-    return false unless item && @item_cooldown[item].zero?
-    return super(item.effect_item)
+    item && @item_cooldown[item].zero? ? super(item.effect_item) : false
   end
 end
 
@@ -759,7 +784,7 @@ class Game_Event < Game_Character
   def process_death
     eval(@battler.data.death_effect)
     return (@dead = true) if @battler.data.keep_corpse?
-    return (@opacity -= ZABS_Setup::DEATH_FADE_RATE) if @opacity > 0
+    return unless (@opacity -= ZABS_Setup::DEATH_FADE_RATE) < 0
     @dead = true
     erase
   end
@@ -767,8 +792,8 @@ class Game_Event < Game_Character
   # * New Method - process_respawn
   #--------------------------------------------------------------------------
   def process_respawn
-    return if @respawn_time == -1
-    @respawn_time > 0 ? @respawn_time -= 1 : respawn
+    return if @respawn_time < 0
+    respawn if (@respawn_time -= 1).zero?
   end
   #--------------------------------------------------------------------------
   # * New Method - update_death
@@ -782,8 +807,8 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   def update_battler
     return unless @battler
-    @battler.update
     update_death
+    @battler.update
   end
 end
 
@@ -804,8 +829,8 @@ class Sprite_Character < Sprite_Base
   alias zabs_sprite_character_update update
   def update
     zabs_sprite_character_update
-    setup_hud
     update_hud
+    update_map_item
   end
   #--------------------------------------------------------------------------
   # * Alias Method - dispose
@@ -813,6 +838,7 @@ class Sprite_Character < Sprite_Base
   alias zabs_sprite_character_dispose dispose
   def dispose
     dispose_hud
+    @map_item_sprite.dispose if @map_item_sprite
     zabs_sprite_character_dispose
   end
   #--------------------------------------------------------------------------
@@ -844,7 +870,6 @@ class Sprite_Character < Sprite_Base
   # * New Method - setup_hud
   #--------------------------------------------------------------------------
   def setup_hud
-    return if @hud_sprite
     @hud_sprite = Sprite.new(viewport)
     @hud_sprite.bitmap = Bitmap.new(hud_width, 4)
   end
@@ -884,10 +909,19 @@ class Sprite_Character < Sprite_Base
   # * New Method - update_hud
   #--------------------------------------------------------------------------
   def update_hud
+    setup_hud unless @hud_sprite
     return (@hud_sprite.bitmap.clear) unless @character.draw_hud?
     update_hud_position
     update_hud_width
     update_hud_bar_width
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - update_map_item
+  #--------------------------------------------------------------------------
+  def update_map_item
+    return unless @character.is_a?(ZABS_Character)
+    @map_item_sprite ||= Sprite_Character.new(viewport, @character.map_item)
+    @map_item_sprite.update
   end
 end
 
@@ -994,11 +1028,6 @@ class Game_MapEnemy < Game_Battler
     item.is_a?(RPG::Skill) ? super : item.is_a?(ZABS_Usable)
   end
   #--------------------------------------------------------------------------
-  # * Overwrite Method - consume_item
-  #--------------------------------------------------------------------------
-  def consume_item(item)
-  end
-  #--------------------------------------------------------------------------
   # * Overwrite Method - param_base
   #--------------------------------------------------------------------------
   def param_base(param_id)
@@ -1011,10 +1040,79 @@ class Game_MapEnemy < Game_Battler
     super + [data]
   end
   #--------------------------------------------------------------------------
+  # * Overwrite Method - consume_item
+  #--------------------------------------------------------------------------
+  def consume_item(item)
+  end
+  #--------------------------------------------------------------------------
   # * New Method - data
   #--------------------------------------------------------------------------
   def data
     $data_enemies[@enemy_id]
+  end
+end
+
+#============================================================================
+# ** New Subclass - Game_MapItem
+#============================================================================
+class Game_MapItem < Game_CharacterBase
+  #--------------------------------------------------------------------------
+  # * Object Initialization
+  #--------------------------------------------------------------------------
+  def initialize(character)
+    super()
+    @character = character
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - direction
+  #--------------------------------------------------------------------------
+  def direction
+    @character.direction
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - screen_x
+  #--------------------------------------------------------------------------
+  def screen_x
+    @character.screen_x
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - screen_y
+  #--------------------------------------------------------------------------
+  def screen_y
+    @character.screen_y
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - screen_z
+  #--------------------------------------------------------------------------
+  def screen_z
+    @character.screen_z
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - set_item
+  #--------------------------------------------------------------------------
+  def set_item(item)
+    return if item.graphic_name.empty?
+    @pattern = 0
+    @item = item
+    @character_name = item.graphic_name
+    @character_index = item.graphic_index
+    @acting_time = item.acting_time / 3
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - remove_item
+  #--------------------------------------------------------------------------
+  def remove_item
+    @item = nil
+    @character_name = ""
+    @character_index = 0
+  end
+  #--------------------------------------------------------------------------
+  # * Frame Update
+  #--------------------------------------------------------------------------
+  def update
+    return unless @item && (@acting_time -= 1).zero?
+    @acting_time = @item.acting_time / 3
+    remove_item if (@pattern += 1) > 2
   end
 end
 
@@ -1056,7 +1154,8 @@ class Game_Projectile < Game_Character
   # * New Method - initialize_projectile
   #--------------------------------------------------------------------------
   def initialize_projectile
-    attrs = ZABS_Setup::PROJECTILE_DEFAULT.merge(data)
+    attrs = ZABS_Setup::PROJECTILE_DEFAULT.clone
+    attrs.merge!(ZABS_Setup::PROJECTILES[@type])
     attrs.each {|k, v| instance_variable_set("@#{k}", v)}
     @ignore = (@ignore.to_s + "?").intern
   end
@@ -1065,12 +1164,6 @@ class Game_Projectile < Game_Character
   #--------------------------------------------------------------------------
   def stopping?
     @distance.zero? && !moving?
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - data
-  #--------------------------------------------------------------------------
-  def data
-    ZABS_Setup::PROJECTILES[@type]
   end
   #--------------------------------------------------------------------------
   # * New Method - valid_targets
