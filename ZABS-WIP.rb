@@ -5,13 +5,12 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
   PROJECTILES = { # Do not delete this line.
 #----------------------------------------------------------------------------
-    1 => { # Boulder
-      character_name: "!Other1",
-      distance: 10,
+    1 => { # Sword
+      move_speed: 4,
       knockback: 1,
       piercing: 5,
-      initial_effect: %{RPG::SE.new("Earth9", 80).play; jump(0, 0)},
-      hit_effect: %{@animation_id = 1},
+      initial_effect: %{RPG::SE.new("Wind7", 80).play},
+      hit_effect: %{RPG::SE.new("Sword4", 80).play},
     },
     2 => { # Arrow
       character_name: "$Arrow",
@@ -25,7 +24,7 @@ module ZABS_Setup
       character_name: "!Other1",
       character_index: 3,
       hit_jump: false,
-      distance: 10,
+      distance: 8,
       hit_cooldown: 0,
       initial_effect: %{RPG::SE.new("Earth9", 80).play},
       end_effect: %{chain(4, $data_skills[128])},
@@ -54,7 +53,6 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
   } # Do not delete this line.
 #----------------------------------------------------------------------------
-#----------------------------------------------------------------------------
 # * Advanced Settings
 #----------------------------------------------------------------------------
   PROJECTILE_DEFAULT = {
@@ -68,7 +66,7 @@ module ZABS_Setup
     knockback: 0,
     piercing: 0,
     hit_cooldown: 30,
-    ignore: :user,
+    ignore: :ally,
     initial_effect: %{},
     update_effect: %{},
     collide_effect: %{},
@@ -87,7 +85,9 @@ module ZABS_Setup
   COOLDOWN_REGEX = /<cooldown:\s*(\d+)>/i
   GRAPHIC_NAME_REGEX = /<graphic[ _]name:\s*(.*)>/i
   GRAPHIC_INDEX_REGEX = /<graphic[ _]index:\s*(\d+)>/i
-  ACTING_TIME_REGEX = /<acting[ _]time:\s*(\d+)/i
+  ACTING_TIME_REGEX = /<acting[ _]time:\s*(\d+)>/i
+  RIGHT_HANDED_REGEX = /<right[ _]handed>/
+  LEFT_HANDED_REGEX = /<left[ _]handed>/
   EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
   IMMOVABLE_REGEX = /<immovable>/i
   EVADE_JUMP_REGEX = /<evade[ _]jump>/i
@@ -154,6 +154,18 @@ module ZABS_Usable
   #--------------------------------------------------------------------------
   def abs_item?
     projectile > 0
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - right_handed?
+  #--------------------------------------------------------------------------
+  def right_handed?
+    @right_handed ||= @note =~ ZABS_Setup::RIGHT_HANDED_REGEX
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - left_handed?
+  #--------------------------------------------------------------------------
+  def left_handed?
+    @left_handed ||= @note =~ ZABS_Setup::LEFT_HANDED_REGEX
   end
   #--------------------------------------------------------------------------
   # * New Method - projectile
@@ -452,6 +464,24 @@ module ZABS_Character
     @map_item = Game_MapItem.new(self)
   end
   #--------------------------------------------------------------------------
+  # * Overwrite Method - passable?
+  #--------------------------------------------------------------------------
+  def passable?(x, y, d)
+    @acting ? false : super
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - update_anime_pattern
+  #--------------------------------------------------------------------------
+  def set_direction(d)
+    super unless @acting
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - update_anime_pattern
+  #--------------------------------------------------------------------------
+  def update_anime_pattern
+    super unless @acting
+  end
+  #--------------------------------------------------------------------------
   # * New Method - attackable?
   #--------------------------------------------------------------------------
   def attackable?
@@ -475,6 +505,19 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def size
     battler.data.size
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - start_acting
+  #--------------------------------------------------------------------------
+  def start_acting
+    @pattern = 0
+    @acting = true
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - stop_acting
+  #--------------------------------------------------------------------------
+  def stop_acting
+    @acting = false
   end
   #--------------------------------------------------------------------------
   # * New Method - use_abs_skill
@@ -534,9 +577,10 @@ module ZABS_Character
   # * New Method - process_hit
   #--------------------------------------------------------------------------
   def process_hit(projectile)
+    stop_acting
     eval(battler.data.hit_effect)
-    projectile.piercing -= 1
     eval(projectile.hit_effect)
+    projectile.piercing -= 1
     process_knockback(projectile) unless battler.data.immovable?
   end
   #--------------------------------------------------------------------------
@@ -733,7 +777,7 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   alias zabs_event_update_self_movement update_self_movement
   def update_self_movement
-    return if @battler && @battler.dead?
+    return if @acting || (@battler && @battler.dead?)
     zabs_event_update_self_movement
   end
   #--------------------------------------------------------------------------
@@ -920,7 +964,7 @@ class Sprite_Character < Sprite_Base
   #--------------------------------------------------------------------------
   def update_map_item
     return unless @character.is_a?(ZABS_Character)
-    @map_item_sprite ||= Sprite_Character.new(viewport, @character.map_item)
+    @map_item_sprite ||= Sprite_MapItem.new(viewport, @character.map_item)
     @map_item_sprite.update
   end
 end
@@ -1085,7 +1129,20 @@ class Game_MapItem < Game_CharacterBase
   # * Overwrite Method - screen_z
   #--------------------------------------------------------------------------
   def screen_z
-    @character.screen_z
+    @character.screen_z - offset_z
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - offset_z
+  #--------------------------------------------------------------------------
+  def offset_z
+    return 0 unless @item
+    valid = case direction
+    when 2 then false
+    when 4 then @item.right_handed?
+    when 6 then @item.left_handed?
+    when 8 then true
+    end
+    valid ? 1 : 0
   end
   #--------------------------------------------------------------------------
   # * New Method - set_item
@@ -1097,6 +1154,7 @@ class Game_MapItem < Game_CharacterBase
     @character_name = item.graphic_name
     @character_index = item.graphic_index
     @acting_time = item.acting_time / 3
+    @character.start_acting
   end
   #--------------------------------------------------------------------------
   # * New Method - remove_item
@@ -1105,6 +1163,7 @@ class Game_MapItem < Game_CharacterBase
     @item = nil
     @character_name = ""
     @character_index = 0
+    @character.stop_acting
   end
   #--------------------------------------------------------------------------
   # * Frame Update
@@ -1112,7 +1171,7 @@ class Game_MapItem < Game_CharacterBase
   def update
     return unless @item && (@acting_time -= 1).zero?
     @acting_time = @item.acting_time / 3
-    remove_item if (@pattern += 1) > 2
+    remove_item if (@pattern += 1) >= 3
   end
 end
 
@@ -1230,6 +1289,24 @@ class Game_Projectile < Game_Character
     update_effects
     update_end
     move_projectile
+  end
+end
+
+#============================================================================
+# ** New Subclass - Scene_MapItem
+#============================================================================
+class Sprite_MapItem < Sprite_Character
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - update_position
+  #--------------------------------------------------------------------------
+  def update_position
+    super
+    self.y += src_rect.height / 3
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - setup_new_effect
+  #--------------------------------------------------------------------------
+  def setup_new_effect
   end
 end
 
