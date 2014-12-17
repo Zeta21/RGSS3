@@ -95,7 +95,7 @@ module ZABS_Setup
 # * Regular Expressions
 #----------------------------------------------------------------------------
   module Regexp
-    ACTING_LOCK = /<acting[ _]lock>/
+    ACTING_LOCK = /<acting[ _]lock>/i
     ACTING_TIME = /<acting[ _]time:\s*(\d+)>/i
     BATTLE_TAGS = /<battle[ _]tags:\s*(.*)>/i
     COOLDOWN = /<cooldown:\s*(\d+)>/i
@@ -108,11 +108,11 @@ module ZABS_Setup
     HIT_EFFECT = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
     IMMOVABLE = /<immovable>/i
     KEEP_CORPSE = /<keep[ _]corpse>/i
-    LEFT_HANDED = /<left[ _]handed>/
+    LEFT_HANDED = /<left[ _]handed>/i
     PROJECTILE = /<projectile:\s*(\d+)>/i
     RESPAWN_EFFECT = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
     RESPAWN_TIME = /<respawn[ _]time:\s*(\d+)>/i
-    RIGHT_HANDED = /<right[ _]handed>/
+    RIGHT_HANDED = /<right[ _]handed>/i
     SIZE = /<size:\s*(\d+)>/i
   end
 end
@@ -432,43 +432,43 @@ module ZABS_Entity
   # * New Method - allies
   #--------------------------------------------------------------------------
   def allies
-    $game_map.entities.select {|x| ally?(x)}
+    $game_map.battlers.select {|x| ally?(x)}
   end
   #--------------------------------------------------------------------------
   # * New Method - friends
   #--------------------------------------------------------------------------
   def friends
-    $game_map.entities.select {|x| friend?(x)}
+    $game_map.battlers.select {|x| friend?(x)}
   end
   #--------------------------------------------------------------------------
   # * New Method - enemies
   #--------------------------------------------------------------------------
   def enemies
-    $game_map.entities.select {|x| enemy?(x)}
+    $game_map.battlers.select {|x| enemy?(x)}
   end
   #--------------------------------------------------------------------------
   # * New Method - ally_target
   #--------------------------------------------------------------------------
   def ally_target
     return @ally if @ally && @ally.battler.alive?
-    allies = $game_map.battlers.select {|x| ally?(x) && x.battler.alive?}
-    (@ally = (allies - [self]).sample) || self
+    alliest = allies.select {|x| x.battler.alive?} - [self]
+    (@ally = alliest.sample) || self
   end
   #--------------------------------------------------------------------------
   # * New Method - friend_target
   #--------------------------------------------------------------------------
   def friend_target
     return @friend if @friend && @friend.battler.alive?
-    friends = $game_map.battlers.select {|x| friend?(x) && x.battler.alive?}
-    (@friend = (friends - [self]).sample) || self
+    friendst = friends.select {|x| x.battler.alive?} - [self]
+    (@friend = friendst.sample) || self
   end
   #--------------------------------------------------------------------------
   # * New Method - enemy_target
   #--------------------------------------------------------------------------
   def enemy_target
     return @enemy if @enemy && @enemy.battler.alive?
-    enemies = $game_map.battlers.select {|x| enemy?(x) && x.battler.alive?}
-    (@enemy = enemies.sample) || self
+    enemiest = enemies.select {|x| x.battler.alive?} - [self]
+    (@enemy = enemiest.sample) || self
   end
 end
 
@@ -504,6 +504,12 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def update_anime_pattern
     @acting_lock ? @pattern = 0 : super
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - draw_hud?
+  #--------------------------------------------------------------------------
+  def draw_hud?
+    battler && battler.alive? && (battler.hp < battler.mhp)
   end
   #--------------------------------------------------------------------------
   # * New Method - attackable?
@@ -775,12 +781,6 @@ end
 class Game_Event < Game_Character
   include ZABS_Character
   attr_reader :battler
-  #--------------------------------------------------------------------------
-  # * Overwrite Method - draw_hud?
-  #--------------------------------------------------------------------------
-  def draw_hud?
-    @battler && @battler.alive? && (@battler.hp < @battler.mhp)
-  end
   #--------------------------------------------------------------------------
   # * Alias Method - initialize
   #--------------------------------------------------------------------------
