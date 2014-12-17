@@ -8,7 +8,6 @@ module ZABS_Setup
     1 => { # Sword
       move_speed: 4,
       knockback: 1,
-      piercing: 5,
       initial_effect: %{RPG::SE.new("Wind7", 80).play},
       hit_effect: %{RPG::SE.new("Sword4", 80).play},
     },
@@ -35,6 +34,21 @@ module ZABS_Setup
       distance: 0,
       ignore: :none,
       initial_effect: %{@animation_id = 3},
+    },
+    5 => { # Spear
+      move_speed: 4,
+      size: 2,
+      knockback: 2,
+      initial_effect: %{RPG::SE.new("Wind7", 80).play},
+      hit_effect: %{RPG::SE.new("Sword4", 80).play},
+    },
+    6 => { # Area Heal
+      size: 5,
+      distance: 0,
+      hit_jump: false,
+      allow_collision: false,
+      ignore: :enemy,
+      hit_effect: %{@animation_id = 3},
     },
 #----------------------------------------------------------------------------
   } # Do not delete this line.
@@ -80,24 +94,27 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
 # * Regular Expressions
 #----------------------------------------------------------------------------
-  BATTLE_TAGS_REGEX = /<battle[ _]tags:\s*(.*)>/i
-  PROJECTILE_REGEX = /<projectile:\s*(\d+)>/i
-  COOLDOWN_REGEX = /<cooldown:\s*(\d+)>/i
-  GRAPHIC_NAME_REGEX = /<graphic[ _]name:\s*(.*)>/i
-  GRAPHIC_INDEX_REGEX = /<graphic[ _]index:\s*(\d+)>/i
-  ACTING_TIME_REGEX = /<acting[ _]time:\s*(\d+)>/i
-  RIGHT_HANDED_REGEX = /<right[ _]handed>/
-  LEFT_HANDED_REGEX = /<left[ _]handed>/
-  EFFECT_ITEM_REGEX = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
-  IMMOVABLE_REGEX = /<immovable>/i
-  EVADE_JUMP_REGEX = /<evade[ _]jump>/i
-  KEEP_CORPSE_REGEX = /<keep[ _]corpse>/i
-  SIZE_REGEX = /<size:\s*(\d+)>/i
-  HIT_EFFECT_REGEX = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
-  DEATH_EFFECT_REGEX = /<death[ _]effect>(.*)<\/death[ _]effect>/im
-  RESPAWN_TIME_REGEX = /<respawn[ _]time:\s*(\d+)>/i
-  RESPAWN_EFFECT_REGEX = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
-  ENEMY_REGEX = /<enemy:\s*(\d+)>/i
+  module Regexp
+    ACTING_LOCK = /<acting[ _]lock>/
+    ACTING_TIME = /<acting[ _]time:\s*(\d+)>/i
+    BATTLE_TAGS = /<battle[ _]tags:\s*(.*)>/i
+    COOLDOWN = /<cooldown:\s*(\d+)>/i
+    DEATH_EFFECT = /<death[ _]effect>(.*)<\/death[ _]effect>/im
+    EFFECT_ITEM = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
+    ENEMY = /<enemy:\s*(\d+)>/i
+    EVADE_JUMP = /<evade[ _]jump>/i
+    GRAPHIC_INDEX = /<graphic[ _]index:\s*(\d+)>/i
+    GRAPHIC_NAME = /<graphic[ _]name:\s*(.*)>/i
+    HIT_EFFECT = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
+    IMMOVABLE = /<immovable>/i
+    KEEP_CORPSE = /<keep[ _]corpse>/i
+    LEFT_HANDED = /<left[ _]handed>/
+    PROJECTILE = /<projectile:\s*(\d+)>/i
+    RESPAWN_EFFECT = /<respawn[ _]effect>(.*)<\/respawn[ _]effect>/im
+    RESPAWN_TIME = /<respawn[ _]time:\s*(\d+)>/i
+    RIGHT_HANDED = /<right[ _]handed>/
+    SIZE = /<size:\s*(\d+)>/i
+  end
 end
 #============================================================================
 # ** End of configuration
@@ -156,56 +173,62 @@ module ZABS_Usable
     projectile > 0
   end
   #--------------------------------------------------------------------------
+  # * New Method - acting_lock?
+  #--------------------------------------------------------------------------
+  def acting_lock?
+    @acting_lock ||= @note =~ ZABS_Setup::Regexp::ACTING_LOCK
+  end
+  #--------------------------------------------------------------------------
   # * New Method - right_handed?
   #--------------------------------------------------------------------------
   def right_handed?
-    @right_handed ||= @note =~ ZABS_Setup::RIGHT_HANDED_REGEX
+    @right_handed ||= @note =~ ZABS_Setup::Regexp::RIGHT_HANDED
   end
   #--------------------------------------------------------------------------
   # * New Method - left_handed?
   #--------------------------------------------------------------------------
   def left_handed?
-    @left_handed ||= @note =~ ZABS_Setup::LEFT_HANDED_REGEX
+    @left_handed ||= @note =~ ZABS_Setup::Regexp::LEFT_HANDED
   end
   #--------------------------------------------------------------------------
   # * New Method - projectile
   #--------------------------------------------------------------------------
   def projectile
     return @projectile if @projectile
-    match = @note[ZABS_Setup::PROJECTILE_REGEX, 1]
+    match = @note[ZABS_Setup::Regexp::PROJECTILE, 1]
     @projectile = match ? match.to_i : -1
   end
   #--------------------------------------------------------------------------
   # * New Method - cooldown
   #--------------------------------------------------------------------------
   def cooldown
-    @cooldown ||= @note[ZABS_Setup::COOLDOWN_REGEX, 1].to_i
+    @cooldown ||= @note[ZABS_Setup::Regexp::COOLDOWN, 1].to_i
   end
   #--------------------------------------------------------------------------
   # * New Method - graphic_name
   #--------------------------------------------------------------------------
   def graphic_name
-    @graphic_name ||= @note[ZABS_Setup::GRAPHIC_NAME_REGEX, 1].to_s
+    @graphic_name ||= @note[ZABS_Setup::Regexp::GRAPHIC_NAME, 1].to_s
   end
   #--------------------------------------------------------------------------
   # * New Method - graphic_index
   #--------------------------------------------------------------------------
   def graphic_index
-    @graphic_index ||= @note[ZABS_Setup::GRAPHIC_INDEX_REGEX, 1].to_i
+    @graphic_index ||= @note[ZABS_Setup::Regexp::GRAPHIC_INDEX, 1].to_i
   end
   #--------------------------------------------------------------------------
   # * New Method - acting_time
   #--------------------------------------------------------------------------
   def acting_time
     return @acting_time if @acting_time
-    match = @note[ZABS_Setup::ACTING_TIME_REGEX, 1].to_i
+    match = @note[ZABS_Setup::Regexp::ACTING_TIME, 1].to_i
     @acting_time = [match, 3].max
   end
   #--------------------------------------------------------------------------
   # * New Method - effect_item
   #--------------------------------------------------------------------------
   def effect_item
-    match = @note.scan(ZABS_Setup::EFFECT_ITEM_REGEX).to_a.flatten
+    match = @note.scan(ZABS_Setup::Regexp::EFFECT_ITEM).to_a.flatten
     case match.first
     when "skill" then $data_skills[match[1].to_i]
     when "item" then $data_items[match[1].to_i]
@@ -221,39 +244,39 @@ module ZABS_Attackable
   # * New Method - immovable?
   #--------------------------------------------------------------------------
   def immovable?
-    @immovable ||= @note =~ ZABS_Setup::IMMOVABLE_REGEX
+    @immovable ||= @note =~ ZABS_Setup::Regexp::IMMOVABLE
   end
   #--------------------------------------------------------------------------
   # * New Method - evade_jump?
   #--------------------------------------------------------------------------
   def evade_jump?
-    @evade_jump ||= @note =~ ZABS_Setup::EVADE_JUMP_REGEX
+    @evade_jump ||= @note =~ ZABS_Setup::Regexp::EVADE_JUMP
   end
   #--------------------------------------------------------------------------
   # * New Method - keep_corpse?
   #--------------------------------------------------------------------------
   def keep_corpse?
-    @keep_corpse ||= @note =~ ZABS_Setup::KEEP_CORPSE_REGEX
+    @keep_corpse ||= @note =~ ZABS_Setup::Regexp::KEEP_CORPSE
   end
   #--------------------------------------------------------------------------
   # * New Method - size
   #--------------------------------------------------------------------------
   def size
     return @size if @size
-    match = @note[ZABS_Setup::SIZE_REGEX, 1].to_i
+    match = @note[ZABS_Setup::Regexp::SIZE, 1].to_i
     @size = [match, 1].max
   end
   #--------------------------------------------------------------------------
   # * New Method - hit_effect
   #--------------------------------------------------------------------------
   def hit_effect
-    @hit_effect ||= @note[ZABS_Setup::HIT_EFFECT_REGEX, 1].to_s
+    @hit_effect ||= @note[ZABS_Setup::Regexp::HIT_EFFECT, 1].to_s
   end
   #--------------------------------------------------------------------------
   # * New Method - death_effect
   #--------------------------------------------------------------------------
   def death_effect
-    @death_effect ||= @note[ZABS_Setup::DEATH_EFFECT_REGEX, 1].to_s
+    @death_effect ||= @note[ZABS_Setup::Regexp::DEATH_EFFECT, 1].to_s
   end
 end
 
@@ -266,7 +289,7 @@ class RPG::BaseItem
   #--------------------------------------------------------------------------
   def battle_tags
     return @battle_tags if @battle_tags
-    match = @note.scan(ZABS_Setup::BATTLE_TAGS_REGEX).to_a
+    match = @note.scan(ZABS_Setup::Regexp::BATTLE_TAGS).to_a
     @battle_tags = match.join(" ").split(/\s+/)
   end
 end
@@ -322,14 +345,14 @@ class RPG::Enemy < RPG::BaseItem
   #--------------------------------------------------------------------------
   def respawn_time
     return @respawn_time if @respawn_time
-    match = @note[ZABS_Setup::RESPAWN_TIME_REGEX, 1].to_i
+    match = @note[ZABS_Setup::Regexp::RESPAWN_TIME, 1].to_i
     @respawn_time = match > 0 ? match : -1
   end
   #--------------------------------------------------------------------------
   # * New Method - respawn_effect
   #--------------------------------------------------------------------------
   def respawn_effect
-    @respawn_effect ||= @note[ZABS_Setup::RESPAWN_EFFECT_REGEX, 1].to_s
+    @respawn_effect ||= @note[ZABS_Setup::Regexp::RESPAWN_EFFECT, 1].to_s
   end
 end
 
@@ -429,7 +452,7 @@ module ZABS_Entity
   def ally_target
     return @ally if @ally && @ally.battler.alive?
     allies = $game_map.battlers.select {|x| ally?(x) && x.battler.alive?}
-    @ally = allies.sample
+    (@ally = (allies - [self]).sample) || self
   end
   #--------------------------------------------------------------------------
   # * New Method - friend_target
@@ -437,7 +460,7 @@ module ZABS_Entity
   def friend_target
     return @friend if @friend && @friend.battler.alive?
     friends = $game_map.battlers.select {|x| friend?(x) && x.battler.alive?}
-    @friend = friends.sample
+    (@friend = (friends - [self]).sample) || self
   end
   #--------------------------------------------------------------------------
   # * New Method - enemy_target
@@ -454,6 +477,7 @@ end
 #============================================================================
 module ZABS_Character
   include ZABS_Entity
+  attr_accessor :acting_lock
   attr_reader :map_item
   #--------------------------------------------------------------------------
   # * Object Initialization
@@ -467,19 +491,19 @@ module ZABS_Character
   # * Overwrite Method - passable?
   #--------------------------------------------------------------------------
   def passable?(x, y, d)
-    @acting ? false : super
+    @acting_lock ? false : super
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - update_anime_pattern
   #--------------------------------------------------------------------------
   def set_direction(d)
-    super unless @acting
+    super unless @acting_lock
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - update_anime_pattern
   #--------------------------------------------------------------------------
   def update_anime_pattern
-    super unless @acting
+    @acting_lock ? @pattern = 0 : super
   end
   #--------------------------------------------------------------------------
   # * New Method - attackable?
@@ -505,19 +529,6 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def size
     battler.data.size
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - start_acting
-  #--------------------------------------------------------------------------
-  def start_acting
-    @pattern = 0
-    @acting = true
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - stop_acting
-  #--------------------------------------------------------------------------
-  def stop_acting
-    @acting = false
   end
   #--------------------------------------------------------------------------
   # * New Method - use_abs_skill
@@ -577,7 +588,7 @@ module ZABS_Character
   # * New Method - process_hit
   #--------------------------------------------------------------------------
   def process_hit(projectile)
-    stop_acting
+    @acting_lock = false
     eval(battler.data.hit_effect)
     eval(projectile.hit_effect)
     projectile.piercing -= 1
@@ -673,6 +684,12 @@ class Game_Map
   #--------------------------------------------------------------------------
   def battlers
     @events.values.select(&:battler).push($game_player)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - battlers_xyd
+  #--------------------------------------------------------------------------
+  def battlers_xyd(x, y, d)
+    battlers.select {|b| b.in_range?(x, y, d)}
   end
   #--------------------------------------------------------------------------
   # * New Method - entities
@@ -777,7 +794,7 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   alias zabs_event_update_self_movement update_self_movement
   def update_self_movement
-    return if @acting || (@battler && @battler.dead?)
+    return if @acting_lock || (@battler && @battler.dead?)
     zabs_event_update_self_movement
   end
   #--------------------------------------------------------------------------
@@ -801,7 +818,7 @@ class Game_Event < Game_Character
   # * New Method - enemy_id
   #--------------------------------------------------------------------------
   def enemy_id
-    @enemy_id ||= @event.name[ZABS_Setup::ENEMY_REGEX, 1].to_i
+    @enemy_id ||= @event.name[ZABS_Setup::Regexp::ENEMY, 1].to_i
   end
   #--------------------------------------------------------------------------
   # * New Method - hp_rate
@@ -1148,13 +1165,12 @@ class Game_MapItem < Game_CharacterBase
   # * New Method - set_item
   #--------------------------------------------------------------------------
   def set_item(item)
-    return if item.graphic_name.empty?
     @pattern = 0
     @item = item
     @character_name = item.graphic_name
     @character_index = item.graphic_index
     @acting_time = item.acting_time / 3
-    @character.start_acting
+    @character.acting_lock = true if item.acting_lock?
   end
   #--------------------------------------------------------------------------
   # * New Method - remove_item
@@ -1162,8 +1178,7 @@ class Game_MapItem < Game_CharacterBase
   def remove_item
     @item = nil
     @character_name = ""
-    @character_index = 0
-    @character.stop_acting
+    @character.acting_lock = false
   end
   #--------------------------------------------------------------------------
   # * Frame Update
@@ -1293,7 +1308,7 @@ class Game_Projectile < Game_Character
 end
 
 #============================================================================
-# ** New Subclass - Scene_MapItem
+# ** New Subclass - Sprite_MapItem
 #============================================================================
 class Sprite_MapItem < Sprite_Character
   #--------------------------------------------------------------------------
@@ -1301,7 +1316,7 @@ class Sprite_MapItem < Sprite_Character
   #--------------------------------------------------------------------------
   def update_position
     super
-    self.y += src_rect.height / 3
+    self.y += (src_rect.height - 32) / 2
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - setup_new_effect
