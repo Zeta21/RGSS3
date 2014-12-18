@@ -71,21 +71,21 @@ module ZABS_Setup
 #----------------------------------------------------------------------------
   PROJECTILE_DEFAULT = {
     move_speed: 5,
-    hit_jump: true,
-    battler_through: true,
     allow_collision: true,
+    battler_through: true,
+    hit_jump: true,
     reflective: false,
-    size: 1,
     distance: 1,
+    hit_cooldown: 30,
     knockback: 0,
     piercing: 0,
-    hit_cooldown: 30,
+    size: 1,
     ignore: :ally,
+    collide_effect: %{},
+    end_effect: %{},
+    hit_effect: %{},
     initial_effect: %{},
     update_effect: %{},
-    collide_effect: %{},
-    hit_effect: %{},
-    end_effect: %{},
   }
   SELF_ITEM_USAGE = true
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
@@ -105,6 +105,7 @@ module ZABS_Setup
     EVADE_JUMP = /<evade[ _]jump>/i
     GRAPHIC_INDEX = /<graphic[ _]index:\s*(\d+)>/i
     GRAPHIC_NAME = /<graphic[ _]name:\s*(.*)>/i
+    HIDE_HUD = /<hide_hud>/
     HIT_EFFECT = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
     IMMOVABLE = /<immovable>/i
     KEEP_CORPSE = /<keep[ _]corpse>/i
@@ -257,6 +258,12 @@ module ZABS_Attackable
   #--------------------------------------------------------------------------
   def keep_corpse?
     @keep_corpse ||= @note =~ ZABS_Setup::Regexp::KEEP_CORPSE
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - hide_hud?
+  #--------------------------------------------------------------------------
+  def hide_hud?
+    @hide_hud ||= @note =~ ZABS_Setup::Regexp::HIDE_HUD
   end
   #--------------------------------------------------------------------------
   # * New Method - size
@@ -451,24 +458,24 @@ module ZABS_Entity
   #--------------------------------------------------------------------------
   def ally_target
     return @ally if @ally && @ally.battler.alive?
-    alliest = allies.select {|x| x.battler.alive?} - [self]
-    (@ally = alliest.sample) || self
+    targets = allies.select {|x| x.battler.alive?} - [self]
+    (@ally = targets.sample) || self
   end
   #--------------------------------------------------------------------------
   # * New Method - friend_target
   #--------------------------------------------------------------------------
   def friend_target
     return @friend if @friend && @friend.battler.alive?
-    friendst = friends.select {|x| x.battler.alive?} - [self]
-    (@friend = friendst.sample) || self
+    targets = friends.select {|x| x.battler.alive?} - [self]
+    (@friend = targets.sample) || self
   end
   #--------------------------------------------------------------------------
   # * New Method - enemy_target
   #--------------------------------------------------------------------------
   def enemy_target
     return @enemy if @enemy && @enemy.battler.alive?
-    enemiest = enemies.select {|x| x.battler.alive?} - [self]
-    (@enemy = enemiest.sample) || self
+    targets = enemies.select {|x| x.battler.alive?} - [self]
+    (@enemy = targets.sample) || self
   end
 end
 
@@ -509,7 +516,8 @@ module ZABS_Character
   # * Overwrite Method - draw_hud?
   #--------------------------------------------------------------------------
   def draw_hud?
-    battler && battler.alive? && (battler.hp < battler.mhp)
+    return false unless battler
+    !battler.data.hide_hud? && battler.alive? && (battler.hp < battler.mhp)
   end
   #--------------------------------------------------------------------------
   # * New Method - attackable?
@@ -535,6 +543,12 @@ module ZABS_Character
   #--------------------------------------------------------------------------
   def size
     battler.data.size
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - hp_rate
+  #--------------------------------------------------------------------------
+  def hp_rate
+    battler.hp.to_f / battler.mhp
   end
   #--------------------------------------------------------------------------
   # * New Method - use_abs_skill
@@ -821,10 +835,11 @@ class Game_Event < Game_Character
     @enemy_id ||= @event.name[ZABS_Setup::Regexp::ENEMY, 1].to_i
   end
   #--------------------------------------------------------------------------
-  # * New Method - hp_rate
+  # * New Method - kill_event
   #--------------------------------------------------------------------------
-  def hp_rate
-    @battler.hp.to_f / @battler.mhp
+  def kill_event
+    eval(battler.data.death_effect)
+    @dead = true
   end
   #--------------------------------------------------------------------------
   # * New Method - respawn
@@ -836,17 +851,17 @@ class Game_Event < Game_Character
   #--------------------------------------------------------------------------
   # * New Method - control_self_switch
   #--------------------------------------------------------------------------
-  def control_self_switch(key, value)
+  def control_self_switch(key, value, reset_dir=true)
     $game_self_switches[[@map_id, @id, key]] = value
+    @original_direction = nil if reset_dir
   end
   #--------------------------------------------------------------------------
   # * New Method - process_death
   #--------------------------------------------------------------------------
   def process_death
-    eval(@battler.data.death_effect)
-    return (@dead = true) if @battler.data.keep_corpse?
+    return kill_event if @battler.data.keep_corpse?
     return unless (@opacity -= ZABS_Setup::DEATH_FADE_RATE) < 0
-    @dead = true
+    kill_event
     erase
   end
   #--------------------------------------------------------------------------
