@@ -80,7 +80,7 @@ module ZABS_Setup
     knockback: 0,
     piercing: 0,
     size: 1,
-    ignore: :ally,
+    ignore: :friend,
     collide_effect: %{},
     end_effect: %{},
     hit_effect: %{},
@@ -90,6 +90,7 @@ module ZABS_Setup
   SELF_ITEM_USAGE = true
   MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
   EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
+  GUARD_EFFECT = %(RPG::SE.new("Hammer", 80).play)
   KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
 #----------------------------------------------------------------------------
 # * Regular Expressions
@@ -105,6 +106,7 @@ module ZABS_Setup
     EVADE_JUMP = /<evade[ _]jump>/i
     GRAPHIC_INDEX = /<graphic[ _]index:\s*(\d+)>/i
     GRAPHIC_NAME = /<graphic[ _]name:\s*(.*)>/i
+    GUARD_RATE = /<guard[ _]rate:\s*(\d+)>/i
     HIDE_HUD = /<hide_hud>/
     HIT_EFFECT = /<hit[ _]effect>(.*)<\/hit[ _]effect>/im
     IMMOVABLE = /<immovable>/i
@@ -224,6 +226,12 @@ module ZABS_Usable
     return @acting_time if @acting_time
     match = @note[ZABS_Setup::Regexp::ACTING_TIME, 1].to_i
     @acting_time = [match, 3].max
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - guard_rate
+  #--------------------------------------------------------------------------
+  def guard_rate
+    @guard_rate ||= @note[ZABS_Setup::Regexp::GUARD_RATE, 1].to_i
   end
   #--------------------------------------------------------------------------
   # * New Method - effect_item
@@ -367,7 +375,7 @@ end
 # ** New Module - ZABS_Battler
 #============================================================================
 module ZABS_Battler
-  attr_accessor :item_cooldown
+  attr_accessor :guarding, :item_cooldown
   #--------------------------------------------------------------------------
   # * Object Initialization
   #--------------------------------------------------------------------------
@@ -381,6 +389,13 @@ module ZABS_Battler
   #--------------------------------------------------------------------------
   def occasion_ok?(item)
     SceneManager.scene_is?(Scene_Map) ? item.battle_ok? : item.menu_ok?
+  end
+  #--------------------------------------------------------------------------
+  # * Overwrite Method - usable?
+  #--------------------------------------------------------------------------
+  def usable?(item)
+    return false unless item && @item_cooldown[item].zero?
+    super(item.effect_item)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - use_item
@@ -601,8 +616,17 @@ module ZABS_Character
   def apply_projectile(projectile)
     return unless attackable? && battle_tags_match?(projectile)
     @hit_cooldown = projectile.hit_cooldown
+    return projectile.piercing -= 1 if process_guard
     battler.item_apply(projectile.battler, projectile.item.effect_item)
     battler.result.hit? ? process_hit(projectile) : process_miss
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_guard
+  #--------------------------------------------------------------------------
+  def process_guard
+    return unless @map_item.item && rand(100) < @map_item.item.guard_rate
+    eval(ZABS_Setup::GUARD_EFFECT)
+    return true
   end
   #--------------------------------------------------------------------------
   # * New Method - process_hit
@@ -656,12 +680,6 @@ end
 class Game_Actor < Game_Battler
   include ZABS_Battler
   alias_method :data, :actor
-  #--------------------------------------------------------------------------
-  # * Overwrite Method - usable?
-  #--------------------------------------------------------------------------
-  def usable?(item)
-    item && @item_cooldown[item].zero? ? super(item.effect_item) : false
-  end
 end
 
 #============================================================================
@@ -1097,11 +1115,10 @@ class Game_MapEnemy < Game_Battler
     @hp, @mp = mhp, mmp
   end
   #--------------------------------------------------------------------------
-  # * Overwrite Method - usable?
+  # * Overwrite Method - item_conditions_met?
   #--------------------------------------------------------------------------
-  def usable?(item)
-    return false unless @item_cooldown[item].zero?
-    item.is_a?(RPG::Skill) ? super : item.is_a?(ZABS_Usable)
+  def item_conditions_met?(item)
+    usable_item_conditions_met?(item)
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - param_base
@@ -1132,6 +1149,7 @@ end
 # ** New Subclass - Game_MapItem
 #============================================================================
 class Game_MapItem < Game_CharacterBase
+  attr_reader :item
   #--------------------------------------------------------------------------
   # * Object Initialization
   #--------------------------------------------------------------------------
@@ -1186,6 +1204,7 @@ class Game_MapItem < Game_CharacterBase
     @character_index = item.graphic_index
     @acting_time = item.acting_time / 3
     @character.acting_lock = true if item.acting_lock?
+    @character.battler.guarding = true if item.guard_rate > 0
   end
   #--------------------------------------------------------------------------
   # * New Method - remove_item
@@ -1194,6 +1213,7 @@ class Game_MapItem < Game_CharacterBase
     @item = nil
     @character_name = ""
     @character.acting_lock = false
+    @character.battler.guarding = false
   end
   #--------------------------------------------------------------------------
   # * Frame Update
