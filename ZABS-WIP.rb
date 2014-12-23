@@ -19,22 +19,6 @@ module ZABS_Setup
       initial_effect: %{RPG::SE.new("Bow2", 80).play},
       hit_effect: %{@animation_id = 1},
     },
-    3 => { # Bomb
-      character_name: "!Other1",
-      character_index: 3,
-      hit_jump: false,
-      distance: 8,
-      hit_cooldown: 0,
-      initial_effect: %{RPG::SE.new("Earth9", 80).play},
-      end_effect: %{chain(4, $data_skills[128])},
-    },
-    4 => { # Explosion
-      allow_collision: false,
-      size: 4,
-      distance: 0,
-      ignore: :none,
-      initial_effect: %{@animation_id = 3},
-    },
     5 => { # Spear
       move_speed: 4,
       size: 2,
@@ -74,6 +58,7 @@ module ZABS_Setup
     allow_collision: true,
     battler_through: true,
     hit_jump: true,
+    ignore_guard: false,
     reflective: false,
     distance: 1,
     hit_cooldown: 30,
@@ -88,9 +73,9 @@ module ZABS_Setup
     update_effect: %{},
   }
   SELF_ITEM_USAGE = true
-  MISS_EFFECT = %(RPG::SE.new("Miss", 80).play)
-  EVADE_EFFECT = %(RPG::SE.new("Miss", 80).play)
-  GUARD_EFFECT = %(RPG::SE.new("Hammer", 80).play)
+  MISS_EFFECT = %{RPG::SE.new("Miss", 80).play}
+  EVADE_EFFECT = %{RPG::SE.new("Miss", 80).play}
+  GUARD_EFFECT = %{RPG::SE.new("Hammer", 80).play}
   KEY_MAP_EXTRA = {COMMA: 0xBC, PERIOD: 0xBE}
 #----------------------------------------------------------------------------
 # * Regular Expressions
@@ -101,6 +86,7 @@ module ZABS_Setup
     BATTLE_TAGS = /<battle[ _]tags:\s*(.*)>/i
     COOLDOWN = /<cooldown:\s*(\d+)>/i
     DEATH_EFFECT = /<death[ _]effect>(.*)<\/death[ _]effect>/im
+    DIRECTION_FIX = /<direction[ _]fix>/
     EFFECT_ITEM = /<effect[ _]item:\s*(skill|item)\s+(\d+)>/i
     ENEMY = /<enemy:\s*(\d+)>/i
     EVADE_JUMP = /<evade[ _]jump>/i
@@ -180,6 +166,12 @@ module ZABS_Usable
   #--------------------------------------------------------------------------
   def acting_lock?
     @acting_lock ||= @note =~ ZABS_Setup::Regexp::ACTING_LOCK
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - direction_fix?
+  #--------------------------------------------------------------------------
+  def direction_fix?
+    @direction_fix ||= @note =~ ZABS_Setup::Regexp::DIRECTION_FIX
   end
   #--------------------------------------------------------------------------
   # * New Method - right_handed?
@@ -516,16 +508,10 @@ module ZABS_Character
     @acting_lock ? false : super
   end
   #--------------------------------------------------------------------------
-  # * Overwrite Method - update_anime_pattern
+  # * Overwrite Method - set_direction
   #--------------------------------------------------------------------------
   def set_direction(d)
-    super unless @acting_lock
-  end
-  #--------------------------------------------------------------------------
-  # * Overwrite Method - update_anime_pattern
-  #--------------------------------------------------------------------------
-  def update_anime_pattern
-    @acting_lock ? @pattern = 0 : super
+    super unless @map_item.item && @map_item.item.direction_fix?
   end
   #--------------------------------------------------------------------------
   # * Overwrite Method - draw_hud?
@@ -547,11 +533,20 @@ module ZABS_Character
     (battler.data.battle_tags & projectile.item.battle_tags).any?
   end
   #--------------------------------------------------------------------------
-  # * New Method - item_map_usable?
+  # * New Method - guarding?
   #--------------------------------------------------------------------------
-  def item_map_usable?(item)
-    return false unless battler.usable?(item)
-    item.abs_item? || item.is_a?(RPG::UsableItem)
+  def guarding?
+    @map_item.item && @map_item.item.guard_rate > rand(100)
+  end
+  #--------------------------------------------------------------------------
+  # * New Method - process_guard?
+  #--------------------------------------------------------------------------
+  def process_guard?(projectile)
+    return false if projectile.ignore_guard
+    return false unless guarding? && @direction + projectile.direction == 10
+    eval(ZABS_Setup::GUARD_EFFECT)
+    projectile.piercing -= 1
+    return true
   end
   #--------------------------------------------------------------------------
   # * New Method - size
@@ -593,14 +588,14 @@ module ZABS_Character
   # * New Method - process_map_item
   #--------------------------------------------------------------------------
   def process_map_item(item)
-    return unless item_map_usable?(item)
+    return unless battler.usable?(item)
     if item.abs_item?
-      @map_item.set_item(item)
       Game_Projectile.spawn(self, item.projectile, item)
       battler.use_item(item)
-    else
+    elsif item.is_a?(RPG::UsableItem)
       process_normal_item(item)
     end
+    @map_item.set_item(item)
   end
   #--------------------------------------------------------------------------
   # * New Method - process_normal_item
@@ -616,17 +611,9 @@ module ZABS_Character
   def apply_projectile(projectile)
     return unless attackable? && battle_tags_match?(projectile)
     @hit_cooldown = projectile.hit_cooldown
-    return projectile.piercing -= 1 if process_guard
+    return if process_guard?(projectile)
     battler.item_apply(projectile.battler, projectile.item.effect_item)
     battler.result.hit? ? process_hit(projectile) : process_miss
-  end
-  #--------------------------------------------------------------------------
-  # * New Method - process_guard
-  #--------------------------------------------------------------------------
-  def process_guard
-    return unless @map_item.item && rand(100) < @map_item.item.guard_rate
-    eval(ZABS_Setup::GUARD_EFFECT)
-    return true
   end
   #--------------------------------------------------------------------------
   # * New Method - process_hit
@@ -671,6 +658,7 @@ module ZABS_Character
     super
     update_hit_cooldown
     @map_item.update
+    @pattern = 0 if @acting_lock
   end
 end
 
@@ -1231,8 +1219,8 @@ end
 class Game_Projectile < Game_Character
   include ZABS_Entity
   attr_accessor :piercing, :sprite_drawn, :need_dispose
-  attr_reader :type, :battler, :item, :hit_jump, :reflective, :knockback
-  attr_reader :size, :hit_cooldown, :hit_effect, :collide_effect
+  attr_reader :type, :battler, :item, :hit_jump, :reflective, :knockback,
+  :size, :hit_cooldown, :hit_effect, :collide_effect, :ignore_guard
   #--------------------------------------------------------------------------
   # * New Class Method - spawn
   #--------------------------------------------------------------------------
